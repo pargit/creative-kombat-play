@@ -57,6 +57,7 @@ const CSS = `
 .cr h2 { margin: 0 0 10px; }
 .cr h3 { font-family: var(--display); color: var(--gold); font-weight: 400; font-size: 17px; margin: 18px 0 8px; letter-spacing: .04em; }
 .cr .cloud { min-height: 1.3em; margin: -4px 0 8px; } .cr .cloud:empty { display: none; } .cr .cloud.busy { color: var(--gold); } .cr .cloud.bad { color: #ff8a8a; }
+.cr .files { background: rgba(244,197,66,.1); border: 1px solid rgba(244,197,66,.3); border-radius: 4px; padding: 8px 10px; margin: 0 0 8px; line-height: 1.5; } .cr .files .mini { margin-left: 6px; }
 .cr .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
 .cr label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--dust); flex: 1; min-width: 140px; }
 .cr input[type=text], .cr textarea, .cr select { font: inherit; font-size: 15px; color: #fff; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); border-radius: 4px; padding: 8px 10px; }
@@ -186,6 +187,7 @@ function buildFighterList() {
   screen('screen-fighters', `
     <h2>MY FIGHTERS</h2>
     <p class="note cloud" role="status"></p>
+    <p class="note files" id="cr-files" hidden></p>
     <ul class="list" id="cr-flist"></ul>
     <div class="foot"><button class="btn" id="cr-fnew">+ NEW FIGHTER</button><button class="btn" id="cr-fback">BACK</button></div>`);
   $('#cr-fnew').onclick = () => editFighter(null);
@@ -197,15 +199,27 @@ async function openFighters() {
   for (const r of recs) {
     const li = document.createElement('li');
     const size = r.model ? r.model.byteLength : r.cloud?.model?.size;
-    li.innerHTML = `<span class="nm"><b>${esc(r.def.name)}</b><br><span class="note">${size ? `3D model, ${mb(size)} MB` : 'Stick figure'}${r.cloud?.pendingBytes ? ' (file still coming from your account)' : ''} · ${esc(r.def.special.name)}</span></span>
+    const onAccount = !!(r.cloud?.model || Object.keys(r.cloud?.props || {}).length); // (has files on the account)
+    const where = !onAccount ? '' : r.cloud.pendingBytes ? ` · <span class="warn">files on your account, not on this device</span>` : ' · on this device and your account';
+    li.innerHTML = `<span class="nm"><b>${esc(r.def.name)}</b><br><span class="note">${size ? `3D model, ${mb(size)} MB` : 'Stick figure'} · ${esc(r.def.special.name)}${where}</span></span>
+      ${onAccount ? (r.cloud.pendingBytes ? `<button class="mini" data-a="get">DOWNLOAD</button>` : `<button class="mini ghost" data-a="drop" title="Free the space on this device; the files stay on your account">REMOVE DOWNLOAD</button>`) : ''}
       <button class="mini" data-a="try">TRY</button><button class="mini" data-a="edit">EDIT</button><button class="mini ghost" data-a="del">DELETE</button>`;
     li.onclick = async (e) => {
       const act = e.target.dataset.a;
       if (act === 'edit') editFighter(r);
       if (act === 'try') api.practice(fighterDef(r));
-      if (act === 'del' && confirm(`Delete ${r.def.name}?`)) { await deleteItem('fighters', r.id); cloud.remove('fighters', r.id); URL.revokeObjectURL(blobUrls.get(r.id)); blobUrls.delete(r.id); await api.fightersChanged(); openFighters(); }
+      if (act === 'get') { e.target.disabled = true; e.target.textContent = 'DOWNLOADING…'; try { await cloud.ensureFiles(r); await api.fightersChanged(); } catch (err) { alert(`Couldn't download: ${err.message}`); } openFighters(); }
+      if (act === 'drop') { await cloud.dropFiles(r); for (const [k, u] of [...blobUrls]) if (k === r.id || k.startsWith(`${r.id}/`)) { URL.revokeObjectURL(u); blobUrls.delete(k); } await api.fightersChanged(); openFighters(); }
+      if (act === 'del' && confirm(`Delete ${r.def.name}?${onAccount ? ' It goes from your account too.' : ''}`)) { await deleteItem('fighters', r.id); cloud.remove('fighters', r.id); URL.revokeObjectURL(blobUrls.get(r.id)); blobUrls.delete(r.id); await api.fightersChanged(); openFighters(); }
     };
     ul.appendChild(li);
+  }
+  // files on the account that this device hasn't kept: all at once
+  const pend = await cloud.pendingFiles(), files = $('#cr-files');
+  files.hidden = !pend.count;
+  if (pend.count) {
+    files.innerHTML = `${pend.count === 1 ? 'One fighter has' : `${pend.count} fighters have`} 3D model files on your account that aren't on this device (<b>${cloud.fmtMB(pend.bytes)}</b>). They play straight from your account; download them to keep them here. <button class="mini" id="cr-getall">DOWNLOAD ALL (${cloud.fmtMB(pend.bytes)})</button>`;
+    $('#cr-getall').onclick = async () => { $('#cr-getall').disabled = true; await cloud.downloadAll(); openFighters(); };
   }
   api.show('screen-fighters');
 }

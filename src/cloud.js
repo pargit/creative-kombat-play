@@ -1,9 +1,12 @@
 // Your creations on your account: fighters (with their model files) and arenas follow you to any
 // device you log in on. The account database keeps the small part (api/creations.js); model files
-// go straight from the browser to the file store (Vercel Blob; api/upload.js hands out the upload
-// token). This device's IndexedDB (store.js) is the working copy: everything is saved there first
-// and then sent up; what the account has and this device doesn't comes down (model files in the
-// background: until they've arrived the game plays the fighter straight from the file's address).
+// go straight from the browser to the file store (Vercel Blob; api/upload.js hands out the upload token).
+// This device's IndexedDB (store.js) is the working copy: everything is saved there first
+// and then sent up; what the account has and this device doesn't comes down. Model files are the
+// big part (up to 20 MB each), so they are NOT fetched by themselves: the fighter is in the game
+// right away and plays straight from the file's address; the files are kept on this device only
+// when the player asks (DOWNLOAD on MY FIGHTERS, or the question after logging in), and can be
+// dropped again (REMOVE DOWNLOAD) without losing anything: they stay on the account.
 //
 // Each item has `updated` (when it was last saved); the newer side wins. A fighter remembers what
 // the account has of it in `cloud` ({ model, props, updated }), so an unchanged model isn't uploaded
@@ -12,11 +15,21 @@
 import { sessionToken, serverConfig } from './accounts.js';
 import { listItems, getItem, putRaw, deleteItem, currentOwner, adoptDeviceItems } from './store.js';
 
-const state = { on: false, dir: null, text: '', error: '', busy: false, offline: false };
+const state = { on: false, dir: null, text: '', error: '', busy: false, offline: false, asked: false };
 const watchers = new Set(), changed = new Set();
 let chain = Promise.resolve(), pending = 0;
 
 // the game shows this (MY FIGHTERS / MY ARENAS): { on, busy, text, error }
+// model files on the account that this device hasn't kept: { count, bytes, recs }
+export async function pendingFiles() {
+  const recs = (await listItems('fighters')).filter((r) => r.cloud?.pendingBytes);
+  const bytes = recs.reduce((n, r) => n + ((r.cloud.model && !r.model ? r.cloud.model.size : 0) + Object.entries(r.cloud.props || {}).reduce((m, [pid, p]) => m + (r.props?.[pid]?.data ? 0 : p.size || 0), 0)), 0);
+  return { count: recs.length, bytes, recs };
+}
+// after a login that brought fighters whose files aren't here: the game asks once whether to fetch them
+let askFn = null;
+export function onAskDownload(fn) { askFn = fn; }
+export const fmtMB = (n) => `${(n / 1048576).toFixed(n < 10 * 1048576 ? 1 : 0)} MB`;
 export function onCloud(fn) { watchers.add(fn); fn(status()); return () => watchers.delete(fn); }
 // something came down from the account: the game reloads its fighters / arenas
 export function onCloudChanged(fn) { changed.add(fn); }
@@ -105,13 +118,31 @@ async function pullFighter(item, local) {
   await putRaw('fighters', rec);
   return rec;
 }
-// the model files of a fighter that came down: fetch them (so it loads instantly from now on)
+// the model files of a fighter that came down: fetch them and keep them on this device
 export async function ensureFiles(rec) {
   if (!rec?.cloud?.pendingBytes) return rec;
   if (rec.cloud.model && !rec.model) { say(`Downloading ${rec.def.name}'s model (${mb(rec.cloud.model.size)} MB)…`); rec.model = await getFile(rec.cloud.model.url); rec.modelType = rec.cloud.model.type; }
   for (const [pid, p] of Object.entries(rec.cloud.props || {})) if (!rec.props[pid]?.data) rec.props[pid] = { data: await getFile(p.url), type: p.type, name: p.name || '' };
   rec.cloud.pendingBytes = false;
   await putRaw('fighters', rec);
+  say(`${rec.def.name} is on this device.`);
+  return rec;
+}
+// DOWNLOAD ALL: every fighter's files, one after the other
+export function downloadAll() {
+  return queue(async () => {
+    for (const rec of (await pendingFiles()).recs) { await ensureFiles(rec); notify('fighters'); }
+    say('All your fighters are on this device.');
+  });
+}
+// REMOVE DOWNLOAD: free the space; the files stay on the account and the fighter still plays from there
+export async function dropFiles(rec) {
+  if (!rec?.cloud?.model && !Object.keys(rec?.cloud?.props || {}).length) return rec;
+  if (rec.cloud.model) rec.model = null;
+  for (const pid of Object.keys(rec.cloud.props || {})) delete rec.props[pid];
+  rec.cloud.pendingBytes = true;
+  await putRaw('fighters', rec);
+  notify('fighters');
   return rec;
 }
 
@@ -140,10 +171,12 @@ async function doSync() {
     for (const far of r[kind]) if (!local.some((x) => x.id === far.id)) { await (kind === 'fighters' ? pullFighter(far, null) : putRaw('arenas', { ...far, owner, cloud: { updated: far.updated } })); notify(kind); }
   }
   say('Your fighters and arenas are on your account.');
-  // model files that haven't arrived yet, one by one in the background
-  for (const rec of await listItems('fighters')) if (rec.cloud?.pendingBytes) { await ensureFiles(rec); notify('fighters'); }
-  say('Your fighters and arenas are on your account.');
+  // model files that aren't on this device: the player decides (once per login) whether to fetch them
+  const pend = await pendingFiles();
+  if (pend.count && !state.asked && askFn) { state.asked = true; askFn(pend); }
 }
+// a new login: ask again about the files
+export function resetAsk() { state.asked = false; }
 
 // after saving / deleting on this device
 export function push(kind, rec) {

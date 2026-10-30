@@ -106,7 +106,7 @@ export function startSettingsSync() {
 }
 
 function startSession(r, local = false) {
-  write(SESSION, { token: r.token || null, name: r.name, friends: r.friends || [], requests: r.requests || [], sent: r.sent || [], local, google: !!r.google, pin: r.pin !== false });
+  write(SESSION, { token: r.token || null, name: r.name, friends: r.friends || [], requests: r.requests || [], sent: r.sent || [], local, google: !!r.google, steam: !!r.steam, pin: r.pin !== false });
   // the account's settings come with it (an account without any yet takes this device's)
   if (r.token) { if (takeSettings(r.settings)) settingsReload = true; else if (!r.settings) synced = null; }
   remove(GUEST);
@@ -167,7 +167,7 @@ export async function claimName(claim, name) {
     return r.ok ? startSession(r) : r;
   } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
 }
-// logged in with a PIN: connect a Google account to it (log in with either from then on)
+// logged in: connect a Google account to it (log in with either from then on)
 export async function linkGoogle(credential) {
   const s = read(SESSION, null);
   if (!s?.token) return { ok: false, error: 'Log in first.' };
@@ -176,6 +176,43 @@ export async function linkGoogle(credential) {
     if (r.ok) write(SESSION, { ...s, google: true });
     return r;
   } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
+}
+// a new Google / Steam sign-in that turned out to be someone with an account: after they log in to
+// it (PIN or the other button), the new sign-in is connected to that account
+export async function linkClaim(claim) {
+  const s = read(SESSION, null);
+  if (!s?.token) return { ok: false, error: 'Log in first.' };
+  try {
+    const r = await server('linkclaim', { claim, token: s.token });
+    if (r.ok) write(SESSION, { ...s, google: !!r.google, steam: !!r.steam, pin: r.pin !== false });
+    return r;
+  } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
+}
+
+// ── Steam sign-in: the browser goes to Steam and comes back (api/steam.js) ──
+// the address to send the browser to; connecting Steam to the logged-in account when `link`
+export async function steamStartUrl(link = false) {
+  const app = new URLSearchParams(location.search).get('app') || sessionStorage.getItem('ck-app') ? '&app=1' : '';
+  if (!link) return `/api/steam?start=1${app}`;
+  const s = read(SESSION, null);
+  if (!s?.token) return null;
+  const r = await server('linkcode', { token: s.token });
+  return r.ok ? `/api/steam?start=1&link=${r.code}${app}` : null;
+}
+// back from Steam with a one-time code: it becomes the login
+export async function redeemLogin(code) {
+  try {
+    const r = await server('redeem', { code });
+    return r.ok ? startSession(r) : r;
+  } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
+}
+// what the account screen says next to the name
+export function loginWays(acc) {
+  const w = [];
+  if (acc?.google) w.push('Google');
+  if (acc?.steam) w.push('Steam');
+  if (acc?.pin !== false) w.push('the PIN');
+  return w;
 }
 
 export function guestLogin() {
@@ -190,7 +227,7 @@ export function currentAccount() {
   const guest = read(GUEST, null);
   if (guest) return { name: guest, guest: true, friends: [] };
   const s = read(SESSION, null);
-  return s?.name ? { name: s.name, friends: s.friends || [], requests: s.requests || [], sent: s.sent || [], online: !!s.token, google: !!s.google, pin: s.pin !== false } : null;
+  return s?.name ? { name: s.name, friends: s.friends || [], requests: s.requests || [], sent: s.sent || [], online: !!s.token, google: !!s.google, steam: !!s.steam, pin: s.pin !== false } : null;
 }
 
 // check the saved login with the server (and pick up friends added on another device)
@@ -218,7 +255,7 @@ export async function refreshAccount() {
   try {
     const r = await server('me', { token: s.token });
     if (r.ok) {
-      write(SESSION, { ...s, name: r.name, friends: r.friends, requests: r.requests || [], sent: r.sent || [], google: !!r.google, pin: r.pin !== false });
+      write(SESSION, { ...s, name: r.name, friends: r.friends, requests: r.requests || [], sent: r.sent || [], google: !!r.google, steam: !!r.steam, pin: r.pin !== false });
       if (takeSettings(r.settings)) settingsReload = true; // (changed on another device)
       else if (!r.settings) synced = null;
       return currentAccount();

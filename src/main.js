@@ -30,7 +30,7 @@ import { TouchEditor, applyLayout } from './touchlayout.js';
 import { net, Lockstep, FrameController, packInput } from './net.js';
 import { SELF_SPECIALS } from './moves.js';
 import { tourney, roundName, bracketSize, MAX as TOURNEY_MAX, GRACE_MS } from './tourney.js';
-import { recentNames, createAccount, login, guestLogin, currentAccount, refreshAccount, takeAccountNotice, logout, setFriends, cleanName, NAME_RE, PIN_RE, requestFriend, respondFriend, unfriend, takeSettingsReload, startSettingsSync, googleLogin, claimName, linkGoogle, serverConfig } from './accounts.js';
+import { recentNames, createAccount, login, guestLogin, currentAccount, refreshAccount, takeAccountNotice, logout, setFriends, cleanName, NAME_RE, PIN_RE, requestFriend, respondFriend, unfriend, takeSettingsReload, startSettingsSync, googleLogin, claimName, linkGoogle, linkClaim, steamStartUrl, redeemLogin, loginWays, serverConfig } from './accounts.js';
 import { setOwner } from './store.js';
 import * as cloud from './cloud.js';
 
@@ -3170,8 +3170,11 @@ $('#t-back').addEventListener('click', () => {
 let accMode = 'login'; // 'login' | 'create' | 'claim' (a new Google sign-in picking its username)
 let accReturn = 'title';
 let accSwitching = false;
-let claim = null;      // the pending Google sign-in's claim code
-let gsiReady = false;  // Google sign-in buttons are on the screen
+let claim = null;        // a new Google / Steam sign-in picking its username: { code, provider }
+let pendingLink = null;  // …or, "I already have an account": connected to the account they log in to next
+let gsiReady = false;    // Google sign-in buttons are on the screen
+let steamReady = false;  // Steam sign-in buttons are on the screen
+const PROVIDER = { google: 'Google', steam: 'Steam' };
 
 // whose fighters and arenas the game shows: the online account's, or this device's (guests)
 const ownerFor = (acc) => (acc && !acc.guest && acc.online ? acc.name : '');
@@ -3181,17 +3184,27 @@ async function accountChanged(acc) {
   app.arenas = await allArenas();
   if (!app.arenas.find((a) => a.id === app.arenaCfg?.id)) { app.arenaCfg = DEFAULT_ARENA; setArena(app.arenaCfg); }
   renderArenaPick();
-  if (ownerFor(acc) && !app.offline) cloud.sync(); // the account's creations come down, this device's go up
+  if (ownerFor(acc) && !app.offline) { cloud.resetAsk(); cloud.sync(); } // the account's creations come down, this device's go up
 }
+// fighters came down whose model files aren't on this device: ask once whether to fetch them
+cloud.onAskDownload((pend) => {
+  $('#files-what').textContent = `${pend.count === 1 ? 'One of your fighters has' : `${pend.count} of your fighters have`} 3D model files on your account (${cloud.fmtMB(pend.bytes)}).`;
+  $('#files-toast').hidden = false;
+});
+$('#files-yes').addEventListener('click', () => { $('#files-toast').hidden = true; cloud.downloadAll(); });
+$('#files-no').addEventListener('click', () => { $('#files-toast').hidden = true; });
 cloud.onCloudChanged(async (kind) => {
   if (kind !== 'arenas') await refreshCustomFighters(true);
   if (kind !== 'fighters') { app.arenas = await allArenas(); renderArenaPick(); }
 });
 
-// Google sign-in (Google Identity Services): shown when the server has a client id (GOOGLE_CLIENT_ID)
-async function setupGoogle() {
+// the sign-in buttons the server supports: Google (Google Identity Services, needs GOOGLE_CLIENT_ID) and
+// Steam (api/steam.js: the browser goes to Steam and comes back)
+async function setupSignIns() {
   const cfg = await serverConfig();
-  if (!cfg?.google || app.offline) return;
+  if (!cfg || app.offline) return;
+  if (cfg.steam) { steamReady = true; $('#acc-steam').hidden = false; $('#acc-steam-link').hidden = false; if (app.screen === 'account') renderAccount(); }
+  if (!cfg.google) return;
   try {
     await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
     google.accounts.id.initialize({ client_id: cfg.google, callback: (r) => onGoogle(r.credential), itp_support: true, cancel_on_tap_outside: true });
@@ -3216,17 +3229,19 @@ async function onGoogle(credential) {
   $('#acc-status').textContent = 'Signing in with Google…';
   const r = await googleLogin(credential);
   if (!r.ok) { $('#acc-status').textContent = r.error; return; }
-  if (r.needName) { // new: pick the username friends will find them by
-    claim = r.claim;
-    setAccMode('claim');
-    $('#acc-claimname').value = r.suggest || '';
-    $('#acc-claimname').focus();
-    return;
-  }
+  if (r.needName) { startClaim(r.claim, 'google', r.suggest); return; } // new: pick the username friends will find them by
   finishLogin(r);
 }
-// logged in (PIN, Google or a new Google account): on with the game
-function finishLogin(r) {
+// a new Google / Steam sign-in: pick a username (or say it's an account they already have)
+function startClaim(code, provider, suggest) {
+  claim = { code, provider };
+  setAccMode('claim');
+  $('#acc-claimhint').textContent = `Signed in with ${PROVIDER[provider]}. Pick the username your friends will find you by. Already have an account here (a PIN or ${provider === 'steam' ? 'Google' : 'Steam'})? Connect this ${PROVIDER[provider]} sign-in to it instead.`;
+  $('#acc-claimname').value = suggest || '';
+  $('#acc-claimname').focus();
+}
+// logged in (PIN, Google, Steam or a new account): on with the game
+async function finishLogin(r) {
   sfx.confirm();
   if (app.account && app.account.name !== r.name) net.leave(); // switched: drop the old account's room
   accSwitching = false;
@@ -3234,7 +3249,35 @@ function finishLogin(r) {
   setAccount(currentAccount());
   if (takeSettingsReload()) { location.reload(); return; } // this account's settings (controls, graphics, sound) come with it
   accountChanged(app.account);
+  if (pendingLink) { // the new sign-in they came with joins this account
+    const link = pendingLink; pendingLink = null;
+    const res = await linkClaim(link.code);
+    if (res.ok) Object.assign(app.account, { google: res.google, steam: res.steam, pin: res.pin });
+    openAccount('title');
+    setFriendStatus(res.ok ? `${PROVIDER[link.provider]} connected: you can log in with it from now on.` : res.error, !res.ok);
+    return;
+  }
   afterLogin();
+}
+// back from Steam (api/steam.js sends the browser to /?login=… /?claim=… /?steam=linked /?err=…)
+async function fromRedirect(back) {
+  if (back.login) {
+    const r = await redeemLogin(back.login);
+    if (r.ok) { finishLogin(r); return true; }
+    openAccount('title'); $('#acc-status').textContent = r.error; return true;
+  }
+  if (back.claim) { openAccount('title'); startClaim(back.claim, 'steam', back.suggest); return true; }
+  if (back.steam === 'linked') {
+    const fresh = await refreshAccount();
+    if (fresh) { setAccount(fresh); openAccount('title'); setFriendStatus('Steam connected: you can log in with it from now on.'); }
+    return true;
+  }
+  if (back.err) {
+    const why = { nodb: 'The account server has no database yet.', expired: 'That sign-in took too long. Try again.', steamno: 'The Steam sign-in was cancelled.', steam: 'The Steam sign-in did not go through. Try again.', steamtaken: 'That Steam account is already connected to another account here.', steamother: 'This account is already connected to another Steam account.', server: 'Server error. Try again in a moment.' }[back.err] || 'Something went wrong. Try again.';
+    openAccount('title'); (app.account ? setFriendStatus(why, true) : ($('#acc-status').textContent = why));
+    return true;
+  }
+  return false;
 }
 
 async function setAccount(acc) {
@@ -3283,13 +3326,19 @@ function renderAccount() {
   $('#acc-form').hidden = claiming;
   $('#acc-claim').hidden = !claiming;
   box.hidden = claiming;
-  $('#acc-google-wrap').hidden = !gsiReady || claiming;
+  $('#acc-google-wrap').hidden = !(gsiReady || steamReady) || claiming;
+  $('#acc-google').hidden = !gsiReady;
   $('#acc-guest').hidden = !!app.account || claiming;
   $('#acc-cancel').hidden = !app.account;
   $('#acc-title').textContent = claiming ? 'PICK YOUR USERNAME' : app.account ? 'SWITCH ACCOUNT' : "WHO'S PLAYING?";
-  // the profile: a PIN account can connect Google (log in with either); a Google account says so
-  $('#acc-googlerow').hidden = !profile || !gsiReady || !!app.account.google || !!app.account.guest;
-  $('#acc-howlogin').textContent = profile && app.account.google ? (app.account.pin ? '(logs in with Google or the PIN)' : '(logs in with Google)') : '';
+  $('#acc-linkhint').hidden = !pendingLink || claiming || profile;
+  if (pendingLink) $('#acc-linkhint').textContent = `Log in to your account (PIN${gsiReady && pendingLink.provider !== 'google' ? ', Google' : ''}${steamReady && pendingLink.provider !== 'steam' ? ', Steam' : ''}) and your ${PROVIDER[pendingLink.provider]} sign-in is connected to it.`;
+  // the profile: connect the other sign-ins (log in with any of them); say which ones it has
+  const acc = app.account || {};
+  $('#acc-googlerow').hidden = !gsiReady || !!acc.google;
+  $('#acc-steam-link').hidden = !steamReady || !!acc.steam;
+  $('#acc-connect').hidden = !profile || !!acc.guest || ((!gsiReady || !!acc.google) && (!steamReady || !!acc.steam));
+  $('#acc-howlogin').textContent = profile && (acc.google || acc.steam) ? `(logs in with ${loginWays(acc).join(' / ')})` : '';
   if (profile) { renderMe(); renderFriends(); setFriendStatus(''); refreshPresence(); }
 }
 
@@ -3303,7 +3352,7 @@ function openAccount(from = 'title') {
   accReturn = from;
   accSwitching = false;
   $('#acc-pin').value = '';
-  if (app.account || accMode === 'claim') accMode = 'login';
+  if (app.account || (accMode === 'claim' && !claim)) accMode = 'login';
   else if (!recentNames().length) accMode = 'create';
   $('#acc-name').value = accMode === 'login' ? (app.account && !app.account.guest ? app.account.name : recentNames()[0] || '') : '';
   $('#acc-status').textContent = takeAccountNotice();
@@ -3345,12 +3394,19 @@ $('#acc-claim').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = $('#acc-claim button');
   btn.disabled = true;
-  const r = await claimName(claim, $('#acc-claimname').value);
+  const r = await claimName(claim?.code, $('#acc-claimname').value);
   btn.disabled = false;
-  if (!r.ok) { $('#acc-status').textContent = r.error; if (r.expired) setAccMode('login'); return; }
+  if (!r.ok) { $('#acc-status').textContent = r.error; if (r.expired) { claim = null; setAccMode('login'); } return; }
   finishLogin(r);
 });
 $('#acc-claimback').addEventListener('click', () => { claim = null; setAccMode('login'); });
+$('#acc-claimhave').addEventListener('click', () => { pendingLink = claim; claim = null; setAccMode('login'); $('#acc-name').focus(); });
+$('#acc-steam').addEventListener('click', async () => { unlockAudio(); $('#acc-steam').disabled = true; location.href = await steamStartUrl(false); });
+$('#acc-steam-link').addEventListener('click', async () => {
+  $('#acc-steam-link').disabled = true;
+  const url = await steamStartUrl(true);
+  if (url) location.href = url; else { $('#acc-steam-link').disabled = false; setFriendStatus('Could not reach the account server. Try again.', true); }
+});
 $('#acc-guest').addEventListener('click', () => { unlockAudio(); guestLogin(); setAccount(currentAccount()); accountChanged(app.account); afterLogin(); });
 $('#acc-logout').addEventListener('click', () => { net.leave(); logout(); setAccount(null); accountChanged(null); setAccMode('login'); openAccount(); });
 $('#acc-back').addEventListener('click', () => (accReturn === 'online' ? openOnline() : accReturn === 'tourney' && app.account ? openTourney() : enterTitle()));
@@ -3483,6 +3539,16 @@ async function serverUp() {
 }
 
 // ── boot ─────────────────────────────────────────────────────────────────────
+// the address the browser came back to from a Steam sign-in (api/steam.js); cleaned off the address bar
+function takeRedirect() {
+  const q = new URLSearchParams(location.search);
+  const back = { login: q.get('login'), claim: q.get('claim'), suggest: q.get('suggest'), steam: q.get('steam'), err: q.get('err') };
+  if (q.get('app')) { try { sessionStorage.setItem('ck-app', '1'); } catch { /* ignore */ } }
+  if (!Object.values(back).some(Boolean)) return null;
+  history.replaceState(null, '', location.pathname + (q.get('app') ? '?app=1' : '') + location.hash);
+  return back;
+}
+const cameBack = takeRedirect();
 async function boot() {
   $('#logo').innerHTML = '';
   $('#logo').append(GAME_TITLE);
@@ -3530,7 +3596,8 @@ async function boot() {
   app.offline = !(await serverUp());
   document.body.classList.toggle('offline', app.offline);
   if (app.offline) { if (!acc) setAccount(guestLogin()); return; } // (no server here, e.g. the preview: play on this device)
-  setupGoogle();
+  setupSignIns();
+  if (cameBack && await fromRedirect(cameBack)) { startSettingsSync(); return; }
   if (!acc) openAccount('title');
   // confirm the saved login with the server and pick up friends added on other devices
   startSettingsSync(); // settings changed here are saved to the account

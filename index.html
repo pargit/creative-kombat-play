@@ -419,16 +419,21 @@ body.touch.fighting .corner { bottom: auto; top: max(84px, calc(env(safe-area-in
 #acc-status { min-height: 1.4em; color: #ff8a8a; }
 .acc-foot { display: flex; flex-wrap: wrap; gap: 8px; }
 .acc-google { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 4px 0 12px; min-height: 44px; }
+.steam-btn { font: inherit; font-weight: 800; font-size: 14px; letter-spacing: .04em; color: #fff; background: linear-gradient(180deg, #2a475e, #171a21); border: 2px solid #4c6b8a; border-radius: 20px; padding: 9px 22px; min-width: 260px; cursor: pointer; }
+.steam-btn:hover { border-color: #66c0f4; } .steam-btn:disabled { opacity: .5; cursor: default; }
+.acc-connectrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 6px 0 10px; } .acc-connectrow .acc-google { margin: 0; min-height: 0; } .acc-connectrow .steam-btn { min-width: 0; }
+#acc-connect { margin: 0 0 8px; } #acc-connect .on-hint { margin: 0 0 4px; }
 .acc-google .acc-or { color: var(--dust); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
 #acc-googlerow { margin: 0 0 10px; } #acc-googlerow .on-hint { margin: 0 0 6px; } #acc-googlerow .acc-google { align-items: flex-start; margin: 0; }
 #acc-claim .mini { align-self: flex-start; margin-top: 4px; }
 .acct-badge { position: fixed; z-index: 20; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); max-width: 50vw;
   font-weight: 800; font-size: 13px; color: var(--bone); background: rgba(20,10,10,.6); border: 2px solid rgba(245,236,223,.3); border-radius: 19px;
   padding: 7px 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#invite-toast { position: fixed; z-index: 40; left: 50%; transform: translateX(-50%); top: max(14px, env(safe-area-inset-top)); width: min(420px, calc(100% - 32px));
+#files-toast, #invite-toast { position: fixed; z-index: 40; left: 50%; transform: translateX(-50%); top: max(14px, env(safe-area-inset-top)); width: min(420px, calc(100% - 32px));
   background: var(--smoke); border: 2px solid var(--gold); border-radius: 6px; padding: 12px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
-#invite-toast p { margin: 0 0 10px; }
-#invite-toast b { color: var(--gold); }
+#invite-toast p, #files-toast p { margin: 0 0 10px; }
+#invite-toast b, #files-toast b { color: var(--gold); }
+#files-toast { top: auto; bottom: max(14px, env(safe-area-inset-bottom)); font-size: 14px; }
 #net-wait { position: fixed; z-index: 9; left: 50%; top: 40%; transform: translateX(-50%); background: rgba(10,4,6,.8); padding: 10px 16px; border-radius: 4px;
   font-weight: 800; letter-spacing: .08em; }
 .result-quote { font-size: clamp(16px, 3vw, 22px); font-style: italic; color: var(--bone); margin-top: 10px; text-align: center; text-shadow: 0 2px 4px #000; }
@@ -707,9 +712,12 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
       <h2>ACCOUNT</h2>
       <p class="on-mycode">Signed in as <b id="acc-me"></b> <span class="on-hint" id="acc-howlogin"></span> <button class="mini ghost" id="acc-logout" type="button">Log out</button></p>
       <p class="acc-switchrow"><button class="mini ghost" id="acc-switch" type="button">Switch account</button></p>
-      <div id="acc-googlerow" hidden>
-        <p class="on-hint">Connect your Google account and log in with it from now on (no PIN to remember). Your fighters and arenas follow your account either way.</p>
-        <div id="acc-google-link" class="acc-google"></div>
+      <div id="acc-connect" hidden>
+        <p class="on-hint">Connect the accounts you'll log in with, here and on Steam later: the same account, the same fighters and arenas everywhere.</p>
+        <div class="acc-connectrow">
+          <div id="acc-googlerow" hidden><div id="acc-google-link" class="acc-google"></div></div>
+          <button class="steam-btn" id="acc-steam-link" type="button" hidden>CONNECT STEAM</button>
+        </div>
       </div>
       <div id="on-friendsbox">
         <h3>Friends</h3>
@@ -745,14 +753,18 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
       </form>
       <!-- a new Google sign-in picks the username friends find them by -->
       <form id="acc-claim" class="acc-form" autocomplete="off" hidden>
-        <p class="on-hint">Signed in with Google. Pick the username your friends will find you by.</p>
+        <p class="on-hint" id="acc-claimhint">Signed in. Pick the username your friends will find you by.</p>
         <label for="acc-claimname">Username</label>
         <input id="acc-claimname" maxlength="14" autocomplete="off" placeholder="e.g. Guy">
         <button class="btn" type="submit">CONTINUE</button>
-        <button class="mini ghost" id="acc-claimback" type="button">Back</button>
+        <div class="acc-foot">
+          <button class="mini ghost" id="acc-claimhave" type="button">I already have an account</button>
+          <button class="mini ghost" id="acc-claimback" type="button">Back</button>
+        </div>
       </form>
+      <p id="acc-linkhint" class="on-hint" hidden></p>
       <p id="acc-status" role="status"></p>
-      <div id="acc-google-wrap" class="acc-google" hidden><span class="acc-or">or</span><div id="acc-google"></div></div>
+      <div id="acc-google-wrap" class="acc-google" hidden><span class="acc-or">or</span><div id="acc-google"></div><button class="steam-btn" id="acc-steam" type="button" hidden>CONTINUE WITH STEAM</button></div>
       <div class="acc-foot">
         <button class="mini ghost" id="acc-guest" type="button">Play as guest</button>
         <button class="mini ghost" id="acc-cancel" type="button" hidden>Cancel</button>
@@ -771,6 +783,10 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
   </div>
 </section>
 
+<div id="files-toast" role="alertdialog" aria-live="polite" hidden>
+  <p><b id="files-what"></b> They play straight from your account; download them to keep them on this device (you can remove them again on MY FIGHTERS).</p>
+  <div><button class="mini" id="files-yes" type="button">Download</button> <button class="mini ghost" id="files-no" type="button">Not now</button></div>
+</div>
 <div id="invite-toast" role="alertdialog" aria-live="assertive" hidden>
   <p><b id="inv-from"></b> invites you to <span id="inv-what">an online fight</span></p>
   <div><button class="mini" id="inv-yes" type="button">Accept</button> <button class="mini ghost" id="inv-no" type="button">Decline</button></div>
