@@ -117,13 +117,14 @@ async function aiCall(action, data = {}) {
     const r = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, token: s.token, ...data }) });
     const j = await r.json();
     if (typeof j.credits === 'number') AI.credits = j.credits;
+    if ('unlimited' in j) AI.unlimited = !!j.unlimited;
     if (j.packs) AI.packs = j.packs;
     showCredits();
     return j;
   } catch { return { ok: false, error: 'Could not reach the server. Try again.' }; }
 }
 function showCredits() {
-  for (const el of document.querySelectorAll('.ai-cr')) el.textContent = AI.credits == null ? '' : `${AI.credits} AI design${AI.credits === 1 ? '' : 's'} left`;
+  for (const el of document.querySelectorAll('.ai-cr')) el.textContent = AI.credits == null ? '' : AI.unlimited ? 'unlimited AI designs (admin)' : `${AI.credits} AI design${AI.credits === 1 ? '' : 's'} left`;
 }
 // press AI DESIGN: the result, or the shop if they're out
 async function aiDesign(kind, text, btn, say, extra = {}) {
