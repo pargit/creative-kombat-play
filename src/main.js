@@ -3315,17 +3315,28 @@ const el = document.documentElement;
 const canFull = !!(el.requestFullscreen || el.webkitRequestFullscreen);
 if (standalone) $('#btn-full').hidden = true; // (the installed app is full screen already)
 $('#btn-reload').addEventListener('click', () => location.reload());
+// whether the player asked for full screen (so it can come back on its own after the OS
+// drops it, e.g. switching apps and returning): only the explicit button toggles this
+let wantFull = false;
+async function enterFull() {
+  await (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  navigator.keyboard?.lock?.(['Escape']).catch(() => {}); // computer: Esc pauses (hold Esc to leave full screen)
+  await screen.orientation?.lock?.('landscape');
+}
 $('#btn-full').addEventListener('click', async () => {
   // iPhone Safari has no full screen for pages: explain Add to Home Screen instead
   if (!canFull) { $('#fs-tip').hidden = false; return; }
   try {
-    if (document.fullscreenElement || document.webkitFullscreenElement) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    else {
-      await (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
-      navigator.keyboard?.lock?.(['Escape']).catch(() => {}); // computer: Esc pauses (hold Esc to leave full screen)
-      await screen.orientation?.lock?.('landscape');
-    }
+    if (document.fullscreenElement || document.webkitFullscreenElement) { wantFull = false; await (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
+    else { wantFull = true; await enterFull(); }
   } catch { $('#fs-tip').hidden = false; }
+});
+// returning to the tab (switched apps, locked the phone...): the OS always drops full
+// screen when that happens, everywhere; get back into it if the player had asked for it
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && wantFull && canFull && !(document.fullscreenElement || document.webkitFullscreenElement)) {
+    enterFull().catch(() => {}); // some browsers refuse without a fresh tap: fall back to the button
+  }
 });
 $('#fs-tip-ok').addEventListener('click', () => { $('#fs-tip').hidden = true; });
 // Install as an app: opened from the home screen it's full screen and sideways from the start,
