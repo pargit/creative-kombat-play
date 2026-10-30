@@ -3245,11 +3245,15 @@ async function onGoogle(credential) {
 }
 // a new Google / Steam sign-in: pick a username (or say it's an account they already have)
 function startClaim(code, provider, suggest) {
-  claim = { code, provider };
+  claim = { code, provider, suggest: suggest || '' };
   setAccMode('claim');
-  $('#acc-claimhint').textContent = `Signed in with ${PROVIDER[provider]}. Pick the username your friends will find you by. Already have an account here (a PIN or ${provider === 'steam' ? 'Google' : 'Steam'})? Connect this ${PROVIDER[provider]} sign-in to it instead.`;
-  $('#acc-claimname').value = suggest || '';
-  $('#acc-claimname').focus();
+  $('#acc-claimhint').textContent = `Signed in with ${PROVIDER[provider]}. Pick the name your friends will know you by${suggest ? `: your ${PROVIDER[provider]} name, or another one` : ''}. Already have an account here (a PIN or ${provider === 'steam' ? 'Google' : 'Steam'})? Connect this ${PROVIDER[provider]} sign-in to it instead.`;
+  // their Steam / Google name in one tap (when the server knows it), or type another below
+  $('#acc-claimpick').hidden = !suggest;
+  $('#acc-usesuggest').textContent = suggest ? `USE MY ${PROVIDER[provider].toUpperCase()} NAME: ${suggest}` : '';
+  $('#acc-claimname').value = '';
+  $('#acc-claimname').placeholder = suggest ? 'another name' : 'e.g. Guy';
+  if (!suggest) $('#acc-claimname').focus();
 }
 // logged in (PIN, Google, Steam or a new account): on with the game
 async function finishLogin(r) {
@@ -3414,6 +3418,7 @@ $('#acc-claim').addEventListener('submit', async (e) => {
   finishLogin(r);
 });
 $('#acc-claimback').addEventListener('click', () => { claim = null; setAccMode('login'); });
+$('#acc-usesuggest').addEventListener('click', () => { if (!claim?.suggest) return; $('#acc-claimname').value = claim.suggest; $('#acc-claim').requestSubmit(); });
 $('#acc-claimhave').addEventListener('click', () => { pendingLink = claim; claim = null; setAccMode('login'); $('#acc-name').focus(); });
 $('#acc-steam').addEventListener('click', async () => { unlockAudio(); $('#acc-steam').disabled = true; location.href = await steamStartUrl(false); });
 $('#acc-steam-link').addEventListener('click', async () => {

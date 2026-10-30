@@ -428,6 +428,7 @@ body.touch.fighting .corner { bottom: auto; top: max(84px, calc(env(safe-area-in
 .acc-google .acc-or { color: var(--dust); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
 #acc-googlerow { margin: 0 0 10px; } #acc-googlerow .on-hint { margin: 0 0 6px; } #acc-googlerow .acc-google { align-items: flex-start; margin: 0; }
 #acc-claim .mini { align-self: flex-start; margin-top: 4px; }
+#acc-claimpick { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 6px; } #acc-claimpick .btn { margin-top: 0; justify-content: center; }
 .acct-badge { position: fixed; z-index: 20; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); max-width: 50vw;
   font-weight: 800; font-size: 13px; color: var(--bone); background: rgba(20,10,10,.6); border: 2px solid rgba(245,236,223,.3); border-radius: 19px;
   padding: 7px 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -758,6 +759,11 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
       <!-- a new Google sign-in picks the username friends find them by -->
       <form id="acc-claim" class="acc-form" autocomplete="off" hidden>
         <p class="on-hint" id="acc-claimhint">Signed in. Pick the username your friends will find you by.</p>
+        <!-- their Steam / Google name, one tap; or another name below -->
+        <div id="acc-claimpick" hidden>
+          <button class="btn" id="acc-usesuggest" type="button"></button>
+          <p class="on-hint" id="acc-claimor">…or another name:</p>
+        </div>
         <label for="acc-claimname">Name</label>
         <input id="acc-claimname" maxlength="14" autocomplete="off" placeholder="e.g. Guy">
         <p class="on-hint">Any name, even one others have: you get a tag like #7K2P that makes it yours, and friends add you by name + tag.</p>
