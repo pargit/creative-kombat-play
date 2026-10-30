@@ -30,7 +30,9 @@ import { TouchEditor, applyLayout } from './touchlayout.js';
 import { net, Lockstep, FrameController, packInput } from './net.js';
 import { SELF_SPECIALS } from './moves.js';
 import { tourney, roundName, bracketSize, MAX as TOURNEY_MAX, GRACE_MS } from './tourney.js';
-import { recentNames, createAccount, login, guestLogin, currentAccount, refreshAccount, takeAccountNotice, logout, setFriends, cleanName, NAME_RE, PIN_RE, requestFriend, respondFriend, unfriend, takeSettingsReload, startSettingsSync } from './accounts.js';
+import { recentNames, createAccount, login, guestLogin, currentAccount, refreshAccount, takeAccountNotice, logout, setFriends, cleanName, NAME_RE, PIN_RE, requestFriend, respondFriend, unfriend, takeSettingsReload, startSettingsSync, googleLogin, claimName, linkGoogle, serverConfig } from './accounts.js';
+import { setOwner } from './store.js';
+import * as cloud from './cloud.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -3165,9 +3167,75 @@ $('#t-back').addEventListener('click', () => {
 });
 
 // ── accounts ─────────────────────────────────────────────────────────────────
-let accMode = 'login';
+let accMode = 'login'; // 'login' | 'create' | 'claim' (a new Google sign-in picking its username)
 let accReturn = 'title';
 let accSwitching = false;
+let claim = null;      // the pending Google sign-in's claim code
+let gsiReady = false;  // Google sign-in buttons are on the screen
+
+// whose fighters and arenas the game shows: the online account's, or this device's (guests)
+const ownerFor = (acc) => (acc && !acc.guest && acc.online ? acc.name : '');
+async function accountChanged(acc) {
+  setOwner(ownerFor(acc));
+  await refreshCustomFighters(true);
+  app.arenas = await allArenas();
+  if (!app.arenas.find((a) => a.id === app.arenaCfg?.id)) { app.arenaCfg = DEFAULT_ARENA; setArena(app.arenaCfg); }
+  renderArenaPick();
+  if (ownerFor(acc) && !app.offline) cloud.sync(); // the account's creations come down, this device's go up
+}
+cloud.onCloudChanged(async (kind) => {
+  if (kind !== 'arenas') await refreshCustomFighters(true);
+  if (kind !== 'fighters') { app.arenas = await allArenas(); renderArenaPick(); }
+});
+
+// Google sign-in (Google Identity Services): shown when the server has a client id (GOOGLE_CLIENT_ID)
+async function setupGoogle() {
+  const cfg = await serverConfig();
+  if (!cfg?.google || app.offline) return;
+  try {
+    await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+    google.accounts.id.initialize({ client_id: cfg.google, callback: (r) => onGoogle(r.credential), itp_support: true, cancel_on_tap_outside: true });
+    const style = { theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'pill', logo_alignment: 'left', width: 260 };
+    google.accounts.id.renderButton($('#acc-google'), style);
+    google.accounts.id.renderButton($('#acc-google-link'), style);
+    gsiReady = true;
+    if (app.screen === 'account') renderAccount();
+  } catch { /* Google's script didn't load (blocked?): the PIN login is still there */ }
+}
+async function onGoogle(credential) {
+  unlockAudio();
+  if (app.account && !app.account.guest && !accSwitching) { // logged in: connect Google to this account
+    setFriendStatus('Connecting Google…');
+    const r = await linkGoogle(credential);
+    if (!r.ok) { setFriendStatus(r.error, true); return; }
+    app.account.google = true;
+    renderAccount(); // (clears the status line, so the message comes after)
+    setFriendStatus('Google connected: you can log in with it from now on.');
+    return;
+  }
+  $('#acc-status').textContent = 'Signing in with Google…';
+  const r = await googleLogin(credential);
+  if (!r.ok) { $('#acc-status').textContent = r.error; return; }
+  if (r.needName) { // new: pick the username friends will find them by
+    claim = r.claim;
+    setAccMode('claim');
+    $('#acc-claimname').value = r.suggest || '';
+    $('#acc-claimname').focus();
+    return;
+  }
+  finishLogin(r);
+}
+// logged in (PIN, Google or a new Google account): on with the game
+function finishLogin(r) {
+  sfx.confirm();
+  if (app.account && app.account.name !== r.name) net.leave(); // switched: drop the old account's room
+  accSwitching = false;
+  claim = null;
+  setAccount(currentAccount());
+  if (takeSettingsReload()) { location.reload(); return; } // this account's settings (controls, graphics, sound) come with it
+  accountChanged(app.account);
+  afterLogin();
+}
 
 async function setAccount(acc) {
   // The online registration stays up through a log-out; it's replaced only when a different
@@ -3208,13 +3276,20 @@ function renderAccount() {
   $('#acc-pin').autocomplete = accMode === 'login' ? 'current-password' : 'new-password';
   // signed in: only Back / Switch account / Log out; switching only logs in to another
   // account (new accounts are made after logging out)
-  const profile = !!app.account && !accSwitching;
+  const profile = !!app.account && !accSwitching, claiming = accMode === 'claim';
   $('#acc-profile').hidden = !profile;
   $('#acc-signin').hidden = profile;
-  $('#acc-tabs').hidden = !!app.account;
-  $('#acc-guest').hidden = !!app.account;
+  $('#acc-tabs').hidden = !!app.account || claiming;
+  $('#acc-form').hidden = claiming;
+  $('#acc-claim').hidden = !claiming;
+  box.hidden = claiming;
+  $('#acc-google-wrap').hidden = !gsiReady || claiming;
+  $('#acc-guest').hidden = !!app.account || claiming;
   $('#acc-cancel').hidden = !app.account;
-  $('#acc-title').textContent = app.account ? 'SWITCH ACCOUNT' : "WHO'S PLAYING?";
+  $('#acc-title').textContent = claiming ? 'PICK YOUR USERNAME' : app.account ? 'SWITCH ACCOUNT' : "WHO'S PLAYING?";
+  // the profile: a PIN account can connect Google (log in with either); a Google account says so
+  $('#acc-googlerow').hidden = !profile || !gsiReady || !!app.account.google || !!app.account.guest;
+  $('#acc-howlogin').textContent = profile && app.account.google ? (app.account.pin ? '(logs in with Google or the PIN)' : '(logs in with Google)') : '';
   if (profile) { renderMe(); renderFriends(); setFriendStatus(''); refreshPresence(); }
 }
 
@@ -3228,7 +3303,7 @@ function openAccount(from = 'title') {
   accReturn = from;
   accSwitching = false;
   $('#acc-pin').value = '';
-  if (app.account) accMode = 'login';
+  if (app.account || accMode === 'claim') accMode = 'login';
   else if (!recentNames().length) accMode = 'create';
   $('#acc-name').value = accMode === 'login' ? (app.account && !app.account.guest ? app.account.name : recentNames()[0] || '') : '';
   $('#acc-status').textContent = takeAccountNotice();
@@ -3264,15 +3339,20 @@ $('#acc-form').addEventListener('submit', async (e) => {
   const r = accMode === 'login' ? await login(name, pin) : await createAccount(name, pin);
   $('#acc-submit').disabled = false;
   if (!r.ok) { $('#acc-status').textContent = r.error; return; }
-  sfx.confirm();
-  if (app.account && app.account.name !== r.name) net.leave(); // switched: drop the old account's room
-  accSwitching = false;
-  setAccount(currentAccount());
-  if (takeSettingsReload()) { location.reload(); return; } // this account's settings (controls, graphics, sound) come with it
-  afterLogin();
+  finishLogin(r);
 });
-$('#acc-guest').addEventListener('click', () => { unlockAudio(); guestLogin(); setAccount(currentAccount()); afterLogin(); });
-$('#acc-logout').addEventListener('click', () => { net.leave(); logout(); setAccount(null); setAccMode('login'); openAccount(); });
+$('#acc-claim').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('#acc-claim button');
+  btn.disabled = true;
+  const r = await claimName(claim, $('#acc-claimname').value);
+  btn.disabled = false;
+  if (!r.ok) { $('#acc-status').textContent = r.error; if (r.expired) setAccMode('login'); return; }
+  finishLogin(r);
+});
+$('#acc-claimback').addEventListener('click', () => { claim = null; setAccMode('login'); });
+$('#acc-guest').addEventListener('click', () => { unlockAudio(); guestLogin(); setAccount(currentAccount()); accountChanged(app.account); afterLogin(); });
+$('#acc-logout').addEventListener('click', () => { net.leave(); logout(); setAccount(null); accountChanged(null); setAccMode('login'); openAccount(); });
 $('#acc-back').addEventListener('click', () => (accReturn === 'online' ? openOnline() : accReturn === 'tourney' && app.account ? openTourney() : enterTitle()));
 $('#acc-switch').addEventListener('click', () => {
   accSwitching = true;
@@ -3413,7 +3493,8 @@ async function boot() {
   try {
     await Promise.race([Promise.all([document.fonts.load('40px Bungee'), document.fonts.load('800 40px Rubik', 'רחבת דגל')]), new Promise((r) => setTimeout(r, 2500))]);
   } catch { /* fall back to system font */ }
-  // the player's own fighters and arenas (kept on this device)
+  // the player's own fighters and arenas (this device's copy; the account's come down after the login is confirmed)
+  setOwner(ownerFor(currentAccount()));
   await refreshCustomFighters(false);
   app.arenas = await allArenas();
   let saved = null; try { saved = localStorage.getItem('ck-arena'); } catch { /* ignore */ }
@@ -3434,6 +3515,7 @@ async function boot() {
     arenasChanged: async () => { app.arenas = await allArenas(); renderArenaPick(); },
     previewArena: (cfg) => setArena(cfg || app.arenaCfg),
     offline: () => app.offline,
+    hasAccount: () => !!ownerFor(app.account),
   });
   renderArenaPick();
   renderLevel();
@@ -3448,6 +3530,7 @@ async function boot() {
   app.offline = !(await serverUp());
   document.body.classList.toggle('offline', app.offline);
   if (app.offline) { if (!acc) setAccount(guestLogin()); return; } // (no server here, e.g. the preview: play on this device)
+  setupGoogle();
   if (!acc) openAccount('title');
   // confirm the saved login with the server and pick up friends added on other devices
   startSettingsSync(); // settings changed here are saved to the account
@@ -3455,7 +3538,7 @@ async function boot() {
     if (!fresh && acc && !acc.guest) { setAccount(null); openAccount('title'); return; }
     // the account's settings were changed on another device: reload to use them (not mid-fight)
     if (takeSettingsReload() && !['fight', 'pause', 'vs', 'result'].includes(app.screen) && !app.match) { location.reload(); return; }
-    if (fresh && !fresh.guest && app.account?.name === fresh.name) applyAccount(fresh);
+    if (fresh && !fresh.guest && app.account?.name === fresh.name) { applyAccount(fresh); app.account.google = fresh.google; app.account.pin = fresh.pin; if (ownerFor(fresh)) cloud.sync(); }
   });
 }
 boot();

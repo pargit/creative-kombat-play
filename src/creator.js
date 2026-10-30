@@ -1,10 +1,12 @@
 // CREATE: the player's own fighters (their 3D model or a stick figure in their colours, their height,
 // their special from the special builder), their own arenas, and the tutorials. Everything is kept
-// on this device (store.js). main.js hands over what it needs: initCreator({ ... }).
+// on this device (store.js) and, with an online account, on the account too (cloud.js).
+// main.js hands over what it needs: initCreator({ ... }).
 
 import * as THREE from 'three';
 import { createRig } from './rig.js';
 import { listItems, saveItem, deleteItem, newId } from './store.js';
+import * as cloud from './cloud.js'; // (with an online account they follow the player to any device)
 import { STEPS, ON_HIT, SHAPES, SOUNDS, MAX_DAMAGE, MAX_STEPS, blankStep, blankSpecial, tweakSpecial, normalizeSpecial, describeSpecial, testSpecial } from './custom.js';
 import { GROUNDS, SKIES, WEATHER, PROPS, PRESET_ARENAS, describeArena } from './arenas.js';
 
@@ -29,14 +31,20 @@ export function fighterDef(rec) {
     def.model = blobUrls.get(rec.id);
     def.modelType = rec.modelType;
     def.autoRig = 'force';
+  } else if (rec.cloud?.model) { // came from the account and the file hasn't been fetched yet: play it from there
+    def.model = rec.cloud.model.url;
+    def.modelType = rec.cloud.model.type;
+    def.autoRig = 'force';
   }
   // the special's own models (a beast, a giant foot, a thrown thing...)
   def.props = {};
   for (const [pid, p] of Object.entries(rec.props || {})) {
+    if (!p?.data) continue;
     const key = `${rec.id}/${pid}`;
     if (!blobUrls.has(key)) blobUrls.set(key, URL.createObjectURL(new Blob([p.data], { type: 'application/octet-stream' })));
     def.props[pid] = { url: blobUrls.get(key), type: p.type };
   }
+  for (const [pid, p] of Object.entries(rec.cloud?.props || {})) if (!def.props[pid]) def.props[pid] = { url: p.url, type: p.type };
   return def;
 }
 export async function loadCustomFighters() { return (await listItems('fighters')).sort((a, b) => a.created - b.created).map(fighterDef); }
@@ -48,6 +56,7 @@ const CSS = `
 .cr { max-width: 760px; width: min(760px, 100%); }
 .cr h2 { margin: 0 0 10px; }
 .cr h3 { font-family: var(--display); color: var(--gold); font-weight: 400; font-size: 17px; margin: 18px 0 8px; letter-spacing: .04em; }
+.cr .cloud { min-height: 1.3em; margin: -4px 0 8px; } .cr .cloud:empty { display: none; } .cr .cloud.busy { color: var(--gold); } .cr .cloud.bad { color: #ff8a8a; }
 .cr .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
 .cr label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--dust); flex: 1; min-width: 140px; }
 .cr input[type=text], .cr textarea, .cr select { font: inherit; font-size: 15px; color: #fff; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); border-radius: 4px; padding: 8px 10px; }
@@ -86,6 +95,11 @@ export function initCreator(a) {
   api = a;
   const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
   buildHub(); buildFighterList(); buildFighterEdit(); buildArenaList(); buildArenaEdit(); buildTutorials(); buildAiBuy();
+  // where the creations live: on the account (and what's being sent up / coming down), or only here
+  cloud.onCloud((st) => {
+    const text = st.on || st.error ? st.text : api.offline?.() ? '' : (api.hasAccount?.() ? 'On this device only: the server has no file store, so they can\'t follow your account yet.' : 'On this device only. Log in to an online account (ACCOUNT on the title screen) and they follow you to any device.');
+    for (const el of document.querySelectorAll('.cr .cloud')) { el.textContent = text; el.classList.toggle('bad', !!st.error); el.classList.toggle('busy', st.busy); }
+  });
 }
 
 // ── the AI designer: the paid option ─────────────────────────────────────────────
@@ -171,6 +185,7 @@ function buildHub() {
 function buildFighterList() {
   screen('screen-fighters', `
     <h2>MY FIGHTERS</h2>
+    <p class="note cloud" role="status"></p>
     <ul class="list" id="cr-flist"></ul>
     <div class="foot"><button class="btn" id="cr-fnew">+ NEW FIGHTER</button><button class="btn" id="cr-fback">BACK</button></div>`);
   $('#cr-fnew').onclick = () => editFighter(null);
@@ -181,13 +196,14 @@ async function openFighters() {
   ul.innerHTML = recs.length ? '' : '<li class="note">No fighters yet. Make your first one!</li>';
   for (const r of recs) {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="nm"><b>${esc(r.def.name)}</b><br><span class="note">${r.model ? `3D model, ${mb(r.model.byteLength)} MB` : 'Stick figure'} · ${esc(r.def.special.name)}</span></span>
+    const size = r.model ? r.model.byteLength : r.cloud?.model?.size;
+    li.innerHTML = `<span class="nm"><b>${esc(r.def.name)}</b><br><span class="note">${size ? `3D model, ${mb(size)} MB` : 'Stick figure'}${r.cloud?.pendingBytes ? ' (file still coming from your account)' : ''} · ${esc(r.def.special.name)}</span></span>
       <button class="mini" data-a="try">TRY</button><button class="mini" data-a="edit">EDIT</button><button class="mini ghost" data-a="del">DELETE</button>`;
     li.onclick = async (e) => {
       const act = e.target.dataset.a;
       if (act === 'edit') editFighter(r);
       if (act === 'try') api.practice(fighterDef(r));
-      if (act === 'del' && confirm(`Delete ${r.def.name}?`)) { await deleteItem('fighters', r.id); URL.revokeObjectURL(blobUrls.get(r.id)); blobUrls.delete(r.id); await api.fightersChanged(); openFighters(); }
+      if (act === 'del' && confirm(`Delete ${r.def.name}?`)) { await deleteItem('fighters', r.id); cloud.remove('fighters', r.id); URL.revokeObjectURL(blobUrls.get(r.id)); blobUrls.delete(r.id); await api.fightersChanged(); openFighters(); }
     };
     ul.appendChild(li);
   }
@@ -391,6 +407,10 @@ function runTest() {
 }
 
 async function editFighter(rec) {
+  if (rec?.cloud?.pendingBytes) { // its model files are still on the account: get them before editing (saving without them would drop them)
+    const ul = $('#cr-flist');
+    try { rec = await cloud.ensureFiles(rec); } catch (e) { if (ul) ul.insertAdjacentHTML('afterbegin', `<li class="note bad">Couldn't fetch ${esc(rec.def.name)}'s model files (${esc(e.message)}). Check your connection and try again.</li>`); return; }
+  }
   FE.rec = rec; FE.model = rec?.model || null; FE.modelType = rec?.modelType || null; FE.rot = rec?.def.modelRotationY || 0;
   FE.special = normalizeSpecial(rec?.def.special || blankSpecial()).special;
   FE.props = { ...(rec?.props || {}) };
@@ -493,8 +513,9 @@ async function saveFighter() {
   // keep only the special's models it still uses
   const used = new Set(FE.special.steps.map((st) => st.model).filter(Boolean)), props = {};
   for (const id of used) if (FE.props[id]) props[id] = FE.props[id];
-  const rec = { id: FE.rec?.id || newId('fighter'), created: FE.rec?.created || Date.now(), def, model: FE.model, modelType: FE.modelType, props };
+  const rec = { id: FE.rec?.id || newId('fighter'), created: FE.rec?.created || Date.now(), updated: Date.now(), def, model: FE.model, modelType: FE.modelType, props, ...(FE.rec?.cloud ? { cloud: FE.rec.cloud } : {}) };
   try { await saveItem('fighters', rec); } catch (e) { err.textContent = `Couldn't save: ${e.message}`; return; }
+  cloud.push('fighters', rec); // (to the account, if there is one)
   for (const [k, u] of [...blobUrls]) if (k === rec.id || k.startsWith(`${rec.id}/`)) { URL.revokeObjectURL(u); blobUrls.delete(k); }
   stopPreview();
   await api.fightersChanged();
@@ -505,6 +526,7 @@ async function saveFighter() {
 function buildArenaList() {
   screen('screen-arenas', `
     <h2>MY ARENAS</h2>
+    <p class="note cloud" role="status"></p>
     <ul class="list" id="cr-alist"></ul>
     <div class="foot"><button class="btn" id="cr-anew">+ NEW ARENA</button><button class="btn" id="cr-aback">BACK</button></div>`);
   $('#cr-anew').onclick = () => editArena(null);
@@ -521,7 +543,7 @@ async function openArenas() {
       const act = e.target.dataset.a;
       if (act === 'see') api.previewArena(a);
       if (act === 'edit') editArena(a);
-      if (act === 'del' && confirm(`Delete ${a.name}?`)) { await deleteItem('arenas', a.id); await api.arenasChanged(); openArenas(); }
+      if (act === 'del' && confirm(`Delete ${a.name}?`)) { await deleteItem('arenas', a.id); cloud.remove('arenas', a.id); await api.arenasChanged(); openArenas(); }
     };
     ul.appendChild(li);
   }
@@ -556,7 +578,9 @@ function buildArenaEdit() {
   $('#ae-save').onclick = async () => {
     readArena();
     if (!AE.cfg.name.trim()) { $('#ae-err').textContent = 'Give it a name.'; return; }
+    AE.cfg.updated = Date.now();
     try { await saveItem('arenas', AE.cfg); } catch (e) { $('#ae-err').textContent = `Couldn't save: ${e.message}`; return; }
+    cloud.push('arenas', AE.cfg);
     await api.arenasChanged(); openArenas();
   };
   $('#ae-cancel').onclick = () => { api.previewArena(null); openArenas(); };

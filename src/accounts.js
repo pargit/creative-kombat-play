@@ -41,6 +41,10 @@ async function server(action, data) {
   }
 }
 export function onlineAccounts() { return serverMode !== false; }
+export function sessionToken() { return read(SESSION, null)?.token || null; }
+// what the server has set up: { google: <client id> | null, cloud: bool } (null: no server)
+let cfg = null;
+export function serverConfig() { cfg ||= server('config', {}).then((r) => (r.ok ? r : null)).catch(() => null); return cfg; }
 
 function remember(name) {
   const list = read(RECENT, []).filter((n) => n.toLowerCase() !== name.toLowerCase());
@@ -102,7 +106,7 @@ export function startSettingsSync() {
 }
 
 function startSession(r, local = false) {
-  write(SESSION, { token: r.token || null, name: r.name, friends: r.friends || [], requests: r.requests || [], sent: r.sent || [], local });
+  write(SESSION, { token: r.token || null, name: r.name, friends: r.friends || [], requests: r.requests || [], sent: r.sent || [], local, google: !!r.google, pin: r.pin !== false });
   // the account's settings come with it (an account without any yet takes this device's)
   if (r.token) { if (takeSettings(r.settings)) settingsReload = true; else if (!r.settings) synced = null; }
   remove(GUEST);
@@ -147,6 +151,33 @@ export async function login(name, pin) {
   }
 }
 
+// ── Google sign-in (the Google button on the account screen; Google Identity Services) ──
+// known Google account → logged in { ok, name }; new → { ok, needName, claim, suggest }: pick a name
+export async function googleLogin(credential) {
+  try {
+    const r = await server('google', { credential });
+    return r.ok && r.token ? startSession(r) : r;
+  } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
+}
+export async function claimName(claim, name) {
+  const n = cleanName(name);
+  if (!NAME_RE.test(n)) return { ok: false, error: 'Usernames are 2–14 letters or numbers.' };
+  try {
+    const r = await server('claim', { claim, name: n });
+    return r.ok ? startSession(r) : r;
+  } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
+}
+// logged in with a PIN: connect a Google account to it (log in with either from then on)
+export async function linkGoogle(credential) {
+  const s = read(SESSION, null);
+  if (!s?.token) return { ok: false, error: 'Log in first.' };
+  try {
+    const r = await server('google', { credential, token: s.token });
+    if (r.ok) write(SESSION, { ...s, google: true });
+    return r;
+  } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
+}
+
 export function guestLogin() {
   const name = `Guest-${100 + Math.floor(Math.random() * 900)}`;
   remove(SESSION);
@@ -159,7 +190,7 @@ export function currentAccount() {
   const guest = read(GUEST, null);
   if (guest) return { name: guest, guest: true, friends: [] };
   const s = read(SESSION, null);
-  return s?.name ? { name: s.name, friends: s.friends || [], requests: s.requests || [], sent: s.sent || [], online: !!s.token } : null;
+  return s?.name ? { name: s.name, friends: s.friends || [], requests: s.requests || [], sent: s.sent || [], online: !!s.token, google: !!s.google, pin: s.pin !== false } : null;
 }
 
 // check the saved login with the server (and pick up friends added on another device)
@@ -187,7 +218,7 @@ export async function refreshAccount() {
   try {
     const r = await server('me', { token: s.token });
     if (r.ok) {
-      write(SESSION, { ...s, name: r.name, friends: r.friends, requests: r.requests || [], sent: r.sent || [] });
+      write(SESSION, { ...s, name: r.name, friends: r.friends, requests: r.requests || [], sent: r.sent || [], google: !!r.google, pin: r.pin !== false });
       if (takeSettings(r.settings)) settingsReload = true; // (changed on another device)
       else if (!r.settings) synced = null;
       return currentAccount();

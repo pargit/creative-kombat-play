@@ -418,6 +418,10 @@ body.touch.fighting .corner { bottom: auto; top: max(84px, calc(env(safe-area-in
 .acc-form .btn { margin-top: 10px; justify-content: center; }
 #acc-status { min-height: 1.4em; color: #ff8a8a; }
 .acc-foot { display: flex; flex-wrap: wrap; gap: 8px; }
+.acc-google { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 4px 0 12px; min-height: 44px; }
+.acc-google .acc-or { color: var(--dust); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
+#acc-googlerow { margin: 0 0 10px; } #acc-googlerow .on-hint { margin: 0 0 6px; } #acc-googlerow .acc-google { align-items: flex-start; margin: 0; }
+#acc-claim .mini { align-self: flex-start; margin-top: 4px; }
 .acct-badge { position: fixed; z-index: 20; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); max-width: 50vw;
   font-weight: 800; font-size: 13px; color: var(--bone); background: rgba(20,10,10,.6); border: 2px solid rgba(245,236,223,.3); border-radius: 19px;
   padding: 7px 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -701,8 +705,12 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
     <!-- signed in: who you are, your friends, and only Back / Switch account / Log out -->
     <div id="acc-profile" hidden>
       <h2>ACCOUNT</h2>
-      <p class="on-mycode">Signed in as <b id="acc-me"></b> <button class="mini ghost" id="acc-logout" type="button">Log out</button></p>
+      <p class="on-mycode">Signed in as <b id="acc-me"></b> <span class="on-hint" id="acc-howlogin"></span> <button class="mini ghost" id="acc-logout" type="button">Log out</button></p>
       <p class="acc-switchrow"><button class="mini ghost" id="acc-switch" type="button">Switch account</button></p>
+      <div id="acc-googlerow" hidden>
+        <p class="on-hint">Connect your Google account and log in with it from now on (no PIN to remember). Your fighters and arenas follow your account either way.</p>
+        <div id="acc-google-link" class="acc-google"></div>
+      </div>
       <div id="on-friendsbox">
         <h3>Friends</h3>
         <div class="on-joinrow">
@@ -735,7 +743,16 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
         <input id="acc-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="current-password">
         <button class="btn" id="acc-submit" type="submit">LOG IN</button>
       </form>
+      <!-- a new Google sign-in picks the username friends find them by -->
+      <form id="acc-claim" class="acc-form" autocomplete="off" hidden>
+        <p class="on-hint">Signed in with Google. Pick the username your friends will find you by.</p>
+        <label for="acc-claimname">Username</label>
+        <input id="acc-claimname" maxlength="14" autocomplete="off" placeholder="e.g. Guy">
+        <button class="btn" type="submit">CONTINUE</button>
+        <button class="mini ghost" id="acc-claimback" type="button">Back</button>
+      </form>
       <p id="acc-status" role="status"></p>
+      <div id="acc-google-wrap" class="acc-google" hidden><span class="acc-or">or</span><div id="acc-google"></div></div>
       <div class="acc-foot">
         <button class="mini ghost" id="acc-guest" type="button">Play as guest</button>
         <button class="mini ghost" id="acc-cancel" type="button" hidden>Cancel</button>
