@@ -143,23 +143,96 @@ function buildAiBuy() {
     <p class="note">The AI designer turns any description, in any language, into a special or an arena: <i>"like Goku's spirit bomb but made of cats"</i>. One design uses one credit. Building it yourself with the parts and FILL IN stays free.</p>
     <p class="ai-cr good"></p>
     <ul class="list" id="ai-packs"></ul>
-    <p class="note">Payment is through Lemon Squeezy (card, PayPal, Apple Pay, Google Pay). When you've paid, come back and press UPDATE.</p>
+    <p class="note" id="ai-how">Payment is through Lemon Squeezy (card, PayPal, Apple Pay, Google Pay). When you've paid, come back and press UPDATE.</p>
+    <p class="note" id="ai-status" role="status"></p>
     <div class="foot"><button class="btn" id="ai-refresh">UPDATE</button><button class="btn" id="ai-back">BACK</button></div>`);
-  $('#ai-refresh').onclick = async () => { await aiCall('credits'); renderPacks(); };
+  $('#ai-refresh').onclick = async () => { await aiCall('credits'); await renderShop(); };
   $('#ai-back').onclick = () => api.show(AI.from || 'screen-create');
-  $('#ai-packs').onclick = (e) => { const u = e.target.dataset.url; if (u) window.open(u, '_blank', 'noopener'); };
+  $('#ai-packs').onclick = (e) => {
+    const u = e.target.dataset.url, sku = e.target.dataset.sku;
+    if (sku) buyOnPlay(sku, e.target);
+    else if (u) window.open(u, '_blank', 'noopener');
+  };
 }
+// the website: Lemon Squeezy buy links
 function renderPacks() {
-  $('#ai-packs').innerHTML = AI.packs.length
-    ? AI.packs.map((p) => `<li><span class="nm"><b>${p.designs} AI designs</b><br><span class="note">${esc(p.price)}</span></span><button class="mini" data-url="${esc(p.url)}">BUY</button></li>`).join('')
+  const packs = AI.packs.filter((p) => p.url);
+  $('#ai-packs').innerHTML = packs.length
+    ? packs.map((p) => `<li><span class="nm"><b>${p.designs} AI designs</b><br><span class="note">${esc(p.price)}</span></span><button class="mini" data-url="${esc(p.url)}">BUY</button></li>`).join('')
     : '<li class="note">The shop isn\'t open yet.</li>';
+}
+// the shop for where the game runs: Google Play in the Play Store app, Lemon Squeezy on the website
+async function renderShop() {
+  const service = await playBilling();
+  if (service) { await restorePlayPurchases(service); await renderPlayPacks(service); } else renderPacks();
 }
 async function openBuy() {
   AI.from = [...document.querySelectorAll('section.screen')].find((x) => !x.hidden && x.id !== 'screen-ai-buy')?.id || 'screen-create';
   renderPacks(); showCredits();
+  $('#ai-status').textContent = '';
   api.show('screen-ai-buy');
   const r = await aiCall('credits');
-  if (!r.ok) $('#ai-packs').innerHTML = `<li class="note bad">${esc(r.error)}</li>`; else renderPacks();
+  if (!r.ok) $('#ai-packs').innerHTML = `<li class="note bad">${esc(r.error)}</li>`; else await renderShop();
+}
+
+// ── Google Play (the app from the Play Store): Google's rules say digital things sold inside the app
+// go through Google Play's own payment. The browser's Digital Goods API reaches Play Billing from the
+// web app; the purchase is checked and credited by the server (api/play.js), then consumed so the
+// same pack can be bought again. ──
+const PLAY = { service: undefined };
+async function playBilling() {
+  if (PLAY.service !== undefined) return PLAY.service;
+  PLAY.service = null;
+  try { if ('getDigitalGoodsService' in window) PLAY.service = (await window.getDigitalGoodsService('https://play.google.com/billing')) || null; } catch { PLAY.service = null; }
+  return PLAY.service;
+}
+const playPrice = (d, fallback) => { try { return d?.price ? new Intl.NumberFormat(undefined, { style: 'currency', currency: d.price.currency }).format(Number(d.price.value)) : fallback; } catch { return fallback; } };
+async function renderPlayPacks(service) {
+  const packs = AI.packs.filter((p) => p.sku);
+  let details = [];
+  try { details = await service.getDetails(packs.map((p) => p.sku)); } catch { /* Play didn't answer: the fallback prices */ }
+  $('#ai-how').textContent = 'Payment is through Google Play. The designs are added to your account right away.';
+  $('#ai-packs').innerHTML = packs.length
+    ? packs.map((p) => `<li><span class="nm"><b>${p.designs} AI designs</b><br><span class="note">${esc(playPrice(details.find((d) => d.itemId === p.sku), p.price))} · Google Play</span></span><button class="mini" data-sku="${esc(p.sku)}">BUY</button></li>`).join('')
+    : '<li class="note">The shop isn\'t open yet.</li>';
+}
+async function buyOnPlay(sku, btn) {
+  const service = await playBilling();
+  if (!service) return;
+  const status = $('#ai-status');
+  btn.disabled = true; status.textContent = '';
+  try {
+    const request = new PaymentRequest([{ supportedMethods: 'https://play.google.com/billing', data: { sku } }], { total: { label: 'Total', amount: { currency: 'USD', value: '0' } } });
+    const response = await request.show();
+    const purchaseToken = response.details?.purchaseToken || response.details?.token;
+    const r = await creditPlayPurchase(service, sku, purchaseToken);
+    await response.complete(r.ok ? 'success' : 'fail');
+    status.innerHTML = r.ok ? `<span class="good">Thanks! ${r.designs} designs added to your account.</span>` : `<span class="bad">${esc(r.error || 'The purchase did not go through.')}</span>`;
+  } catch (e) {
+    if (e?.name !== 'AbortError') status.innerHTML = `<span class="bad">The purchase did not go through${e?.message ? `: ${esc(e.message)}` : ''}.</span>`;
+  }
+  btn.disabled = false;
+}
+// the server checks the purchase with Google and adds the designs; then the purchase is consumed
+async function creditPlayPurchase(service, sku, purchaseToken) {
+  if (!purchaseToken) return { ok: false, error: 'Google Play did not return a purchase.' };
+  let j;
+  try {
+    const r = await fetch('/api/play', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verify', token: session()?.token, sku, purchaseToken }) });
+    j = await r.json();
+  } catch { return { ok: false, error: 'Could not reach the server. Press UPDATE in a moment: nothing is lost.' }; }
+  if (j.ok) {
+    try { await service.consume(purchaseToken); } catch { /* consumed already, or Play will show it again: the server credits once per order */ }
+    if (typeof j.credits === 'number') AI.credits = j.credits;
+    showCredits();
+  }
+  return j;
+}
+// purchases that were paid for but not credited (the app closed in between): credit them now
+async function restorePlayPurchases(service) {
+  try {
+    for (const p of await service.listPurchases()) if (AI.packs.some((k) => k.sku === p.itemId) && p.purchaseToken) await creditPlayPurchase(service, p.itemId, p.purchaseToken);
+  } catch { /* nothing to restore */ }
 }
 export function openCreate() { api.show('screen-create'); }
 
