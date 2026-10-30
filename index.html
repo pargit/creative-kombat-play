@@ -415,6 +415,8 @@ body.touch.fighting .corner { bottom: auto; top: max(84px, calc(env(safe-area-in
 .acc-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
 .acc-form { display: flex; flex-direction: column; gap: 6px; }
 .acc-form label { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--dust); margin-top: 4px; }
+.acc-form .on-hint { margin: 0; } .acc-form .on-hint[hidden] { display: none; }
+.htag { color: var(--dust); font-size: .82em; font-weight: 600; margin-left: 2px; }
 .acc-form .btn { margin-top: 10px; justify-content: center; }
 #acc-status { min-height: 1.4em; color: #ff8a8a; }
 .acc-foot { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -711,6 +713,7 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
     <div id="acc-profile" hidden>
       <h2>ACCOUNT</h2>
       <p class="on-mycode">Signed in as <b id="acc-me"></b> <span class="on-hint" id="acc-howlogin"></span> <button class="mini ghost" id="acc-logout" type="button">Log out</button></p>
+      <p class="on-hint" id="acc-mytag" hidden>Friends add you as <b id="acc-handle"></b> (your name plus your tag: others can have your name, the tag is yours alone).</p>
       <p class="acc-switchrow"><button class="mini ghost" id="acc-switch" type="button">Switch account</button></p>
       <div id="acc-connect" hidden>
         <p class="on-hint">Connect the accounts you'll log in with, here and on Steam later: the same account, the same fighters and arenas everywhere.</p>
@@ -722,7 +725,7 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
       <div id="on-friendsbox">
         <h3>Friends</h3>
         <div class="on-joinrow">
-          <input id="on-addcode" maxlength="14" placeholder="Friend's username" aria-label="Friend's username">
+          <input id="on-addcode" maxlength="19" placeholder="Friend's name#TAG" aria-label="Friend's name and tag">
           <button class="mini" id="on-add" type="button">Add</button>
         </div>
         <div id="fr-reqbox" hidden>
@@ -745,8 +748,9 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
         <button class="mini ghost" id="acc-tab-create" type="button" role="tab">New account</button>
       </div>
       <form id="acc-form" class="acc-form" autocomplete="on">
-        <label for="acc-name">Username</label>
-        <input id="acc-name" maxlength="14" autocomplete="username" placeholder="e.g. Guy">
+        <label for="acc-name" id="acc-namelabel">Name</label>
+        <input id="acc-name" maxlength="19" autocomplete="username" placeholder="e.g. Guy">
+        <p class="on-hint" id="acc-namehint">Any name, even one others have: you get a tag like #7K2P that makes it yours, and friends add you by name + tag.</p>
         <label for="acc-pin">PIN (4–6 digits)</label>
         <input id="acc-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="current-password">
         <button class="btn" id="acc-submit" type="submit">LOG IN</button>
@@ -754,8 +758,9 @@ html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; 
       <!-- a new Google sign-in picks the username friends find them by -->
       <form id="acc-claim" class="acc-form" autocomplete="off" hidden>
         <p class="on-hint" id="acc-claimhint">Signed in. Pick the username your friends will find you by.</p>
-        <label for="acc-claimname">Username</label>
+        <label for="acc-claimname">Name</label>
         <input id="acc-claimname" maxlength="14" autocomplete="off" placeholder="e.g. Guy">
+        <p class="on-hint">Any name, even one others have: you get a tag like #7K2P that makes it yours, and friends add you by name + tag.</p>
         <button class="btn" type="submit">CONTINUE</button>
         <div class="acc-foot">
           <button class="mini ghost" id="acc-claimhave" type="button">I already have an account</button>

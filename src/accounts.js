@@ -11,7 +11,12 @@ const LOCAL = 'fk-accounts';       // old on-device accounts (fallback + migrati
 const GUEST = 'fk-guest';
 
 export const PIN_RE = /^\d{4,6}$/;
+// a display name (anyone may share it); the account's full name is name#TAG, the tag given out by the
+// server (like Guy#7K2P): that's what friends add, and what `name` holds on an account
 export const NAME_RE = /^[\p{L}\p{N} ._-]{2,14}$/u;
+export const HANDLE_RE = /^[\p{L}\p{N} ._-]{2,14}(#[23456789A-HJ-NP-Za-hj-np-z]{4})?$/u;
+export const displayName = (handle) => String(handle || '').split('#')[0];
+export const tagOf = (handle) => String(handle || '').split('#')[1] || '';
 
 const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } };
@@ -116,7 +121,7 @@ function startSession(r, local = false) {
 
 export async function createAccount(name, pin) {
   const n = cleanName(name);
-  if (!NAME_RE.test(n)) return { ok: false, error: 'Usernames are 2–14 letters or numbers.' };
+  if (!NAME_RE.test(n)) return { ok: false, error: 'Names are 2–14 letters or numbers.' };
   if (!PIN_RE.test(pin)) return { ok: false, error: 'The PIN must be 4–6 digits.' };
   try {
     const r = await server('register', { name: n, pin });
@@ -132,6 +137,7 @@ export async function createAccount(name, pin) {
 
 export async function login(name, pin) {
   const n = cleanName(name);
+  if (!HANDLE_RE.test(n)) return { ok: false, error: 'Names are 2–14 letters or numbers, plus the tag (like Guy#7K2P).' };
   try {
     const r = await server('login', { name: n, pin });
     if (r.ok) return startSession(r);
@@ -161,7 +167,7 @@ export async function googleLogin(credential) {
 }
 export async function claimName(claim, name) {
   const n = cleanName(name);
-  if (!NAME_RE.test(n)) return { ok: false, error: 'Usernames are 2–14 letters or numbers.' };
+  if (!NAME_RE.test(n)) return { ok: false, error: 'Names are 2–14 letters or numbers.' };
   try {
     const r = await server('claim', { claim, name: n });
     return r.ok ? startSession(r) : r;
@@ -387,14 +393,16 @@ async function call(action, data) {
   if (!s?.token) return { ok: false, local: true };
   try { return keep(await server(action, { token: s.token, ...data })); } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
 }
-export async function requestFriend(name) {
+export async function requestFriend(typed) {
   const s = read(SESSION, null);
+  let name = cleanName(typed);
+  if (!HANDLE_RE.test(name)) return { ok: false, error: 'Names are 2–14 letters or numbers, plus the tag (like Guy#7K2P).' };
   // a device-only account (made while the account server was unreachable) can't ask anyone,
   // and friends must accept: it has to go online first
   if (s && !s.token) {
-    // only real accounts: ask the account server if the name exists (when it has a database)
+    // only real accounts: ask the account server which account that is (when it has a database)
     let exists = null;
-    try { const j = await server('exists', { name }); if (j?.ok) exists = !!j.exists; } catch { /* no database: can't check */ }
+    try { const j = await server('exists', { name }); if (j?.ok) { exists = !!j.exists; if (j.name) name = j.name; else if (j.error) return { ok: false, error: j.error }; } } catch { /* no database: can't check */ }
     if (exists === false) return { ok: false, error: `No account called "${name}". Check the spelling.` };
     const r = await localFriendAction((x) => {
       if (hasN(x.friends, name)) return { status: 'friends', name };

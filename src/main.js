@@ -30,7 +30,16 @@ import { TouchEditor, applyLayout } from './touchlayout.js';
 import { net, Lockstep, FrameController, packInput } from './net.js';
 import { SELF_SPECIALS } from './moves.js';
 import { tourney, roundName, bracketSize, MAX as TOURNEY_MAX, GRACE_MS } from './tourney.js';
-import { recentNames, createAccount, login, guestLogin, currentAccount, refreshAccount, takeAccountNotice, logout, setFriends, cleanName, NAME_RE, PIN_RE, requestFriend, respondFriend, unfriend, takeSettingsReload, startSettingsSync, googleLogin, claimName, linkGoogle, linkClaim, steamStartUrl, redeemLogin, loginWays, serverConfig } from './accounts.js';
+import { recentNames, createAccount, login, guestLogin, currentAccount, refreshAccount, takeAccountNotice, logout, setFriends, cleanName, NAME_RE, PIN_RE, requestFriend, respondFriend, unfriend, takeSettingsReload, startSettingsSync, googleLogin, claimName, linkGoogle, linkClaim, steamStartUrl, redeemLogin, loginWays, serverConfig, displayName, tagOf, HANDLE_RE } from './accounts.js';
+
+// an account's name on the screen: the display name, with its tag small after it (two friends can
+// be called the same; the tag tells them apart and is what you add them by)
+function nameNode(handle) {
+  const span = document.createElement('span');
+  span.textContent = displayName(handle);
+  if (tagOf(handle)) { const t = document.createElement('span'); t.className = 'htag'; t.textContent = `#${tagOf(handle)}`; span.appendChild(t); }
+  return span;
+}
 import { setOwner } from './store.js';
 import * as cloud from './cloud.js';
 
@@ -1038,7 +1047,7 @@ function renderSelect() {
     plate.style.visibility = visible ? 'visible' : 'hidden';
     const shown = dummy ? DUMMY : resolvePick(side);
     const def = shown.locked ? { name: 'LOCKED', tagline: 'Coming soon' } : shown;
-    plate.querySelector('.tag').textContent = online ? (side === net.side ? `YOU · ${app.account?.name || ''}` : (net.opponent || 'FRIEND')) : side === 0 ? 'P1' : dummy ? 'PRACTICE' : one ? 'CPU' : 'P2';
+    plate.querySelector('.tag').textContent = online ? (side === net.side ? `YOU · ${displayName(app.account?.name)}` : (displayName(net.opponent) || 'FRIEND')) : side === 0 ? 'P1' : dummy ? 'PRACTICE' : one ? 'CPU' : 'P2';
     plate.querySelector('.nm').textContent = def.name;
     plate.querySelector('.tl').textContent = def.random ? 'Let fate decide' : def.tagline || '';
     if (def.special && !def.dummy) {
@@ -1158,7 +1167,7 @@ class Match {
   setupHud() {
     this.fighters.forEach((f, i) => {
       const bar = $(`.hbar.p${i + 1}`);
-      bar.querySelector('.name').textContent = this.mode === 'online' ? `${f.def.name} · ${i === net.side ? 'YOU' : net.opponent || 'FRIEND'}` : this.mode === 'watch' && app.watch?.names?.[i] ? `${f.def.name} · ${app.watch.names[i]}` : f.def.name;
+      bar.querySelector('.name').textContent = this.mode === 'online' ? `${f.def.name} · ${i === net.side ? 'YOU' : displayName(net.opponent) || 'FRIEND'}` : this.mode === 'watch' && app.watch?.names?.[i] ? `${f.def.name} · ${displayName(app.watch.names[i])}` : f.def.name;
       bar.querySelector('.pfp').style.backgroundImage = app.portraits[f.def.id] ? `url(${app.portraits[f.def.id]})` : 'none';
       bar.querySelector('.spec').textContent = f.def.special?.name || 'SPECIAL';
     });
@@ -2300,8 +2309,10 @@ function friends() { return app.account?.friends || []; }
 
 function renderMe() {
   const acc = app.account;
-  $('#on-me').textContent = acc ? acc.name : '';
-  $('#acc-me').textContent = acc ? acc.name : '';
+  $('#on-me').replaceChildren(acc ? nameNode(acc.name) : '');
+  $('#acc-me').replaceChildren(acc ? nameNode(acc.name) : '');
+  $('#acc-mytag').hidden = !acc || acc.guest || !tagOf(acc.name);
+  $('#acc-handle').textContent = acc?.name || '';
   $('#on-friendsbox').hidden = !acc || acc.guest;
   $('#on-guestnote').hidden = !(acc && acc.guest);
 }
@@ -2314,14 +2325,14 @@ function renderFriends() {
   const list = friends();
   const sent = app.account?.sent || [];
   if (!list.length && !sent.length) {
-    ul.innerHTML = '<li class="empty">No friends yet. Add them by their username.</li>';
+    ul.innerHTML = '<li class="empty">No friends yet. Add them by their name and tag, like Guy#7K2P (on their account screen).</li>';
     return;
   }
   for (const p of sent) {
     const li = document.createElement('li');
     const nm = document.createElement('span');
     nm.className = 'fname';
-    nm.textContent = p.name;
+    nm.replaceChildren(nameNode(p.name));
     const tag = document.createElement('span');
     tag.className = 'pending';
     tag.textContent = ' · waiting for them to accept';
@@ -2331,7 +2342,7 @@ function renderFriends() {
     rm.type = 'button';
     rm.textContent = '✕';
     rm.setAttribute('aria-label', `Cancel request to ${p.name}`);
-    rm.addEventListener('click', async () => { applyAccount(await unfriend(p.name)); setFriendStatus(`Request to ${p.name} cancelled.`); });
+    rm.addEventListener('click', async () => { applyAccount(await unfriend(p.name)); setFriendStatus(`Request to ${displayName(p.name)} cancelled.`); });
     li.append(nm, rm);
     ul.appendChild(li);
   }
@@ -2342,7 +2353,7 @@ function renderFriends() {
     dot.title = 'offline';
     const nm = document.createElement('span');
     nm.className = 'fname';
-    nm.textContent = f.name;
+    nm.replaceChildren(nameNode(f.name));
     const inv = document.createElement('button');
     inv.className = 'mini';
     inv.type = 'button';
@@ -2358,7 +2369,7 @@ function renderFriends() {
       if (r.ok === false && !r.local) { setFriendStatus(r.error || 'Could not remove them.', true); return; }
       applyAccount(r.local ? currentAccount() : r);
       if (!r.local) net.poke(f.name);
-      setFriendStatus(`${f.name} removed from your friends (and you from theirs).`);
+      setFriendStatus(`${displayName(f.name)} removed from your friends (and you from theirs).`);
     });
     li.append(dot, nm, inv, rm);
     ul.appendChild(li);
@@ -2447,7 +2458,7 @@ function renderInvites() {
     dot.title = 'offline';
     const nm = document.createElement('span');
     nm.className = 'fname';
-    nm.textContent = f.name;
+    nm.replaceChildren(nameNode(f.name));
     const inv = document.createElement('button');
     inv.className = 'mini';
     inv.type = 'button';
@@ -2527,17 +2538,17 @@ async function inviteFriend(f) {
   if (tourney.active && tourney.s?.phase === 'lobby') {
     const code = tourney.s.code;
     const ok = await net.inviteTourney(f, code).catch(() => false);
-    const msg = ok ? `Tournament invite sent to ${f.name}.` : `Tournament invite sent to ${f.name}: they'll see it within a few seconds if they have the game open. Or send them the code ${code}.`;
+    const msg = ok ? `Tournament invite sent to ${displayName(f.name)}.` : `Tournament invite sent to ${displayName(f.name)}: they'll see it within a few seconds if they have the game open. Or send them the code ${code}.`;
     setStatus(msg); tStatus(msg);
     return;
   }
-  setStatus(`Inviting ${f.name}…`);
+  setStatus(`Inviting ${displayName(f.name)}…`);
   try {
     const ok = await net.invite(f);
     showRoom();
     setStatus(ok
-      ? `Invite sent to ${f.name}. Waiting for them to accept (room ${net.roomCode}).`
-      : `Invite sent to ${f.name}: they'll see it within a few seconds if they have the game open. You can also send them room code ${net.roomCode}.`);
+      ? `Invite sent to ${displayName(f.name)}. Waiting for them to accept (room ${net.roomCode}).`
+      : `Invite sent to ${displayName(f.name)}: they'll see it within a few seconds if they have the game open. You can also send them room code ${net.roomCode}.`);
   } catch (err) {
     setStatus(err.message || 'Could not send the invite.', true);
   }
@@ -2561,9 +2572,9 @@ $('#on-join').addEventListener('click', () => { unlockAudio(); joinRoom($('#on-j
 $('#on-joincode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom(e.target.value); });
 $('#on-add').addEventListener('click', async () => {
   const name = cleanName($('#on-addcode').value);
-  if (!NAME_RE.test(name)) { setFriendStatus("Type your friend's username exactly as they wrote it.", true); return; }
+  if (!HANDLE_RE.test(name)) { setFriendStatus("Type your friend's name and tag as on their account screen, like Guy#7K2P.", true); return; }
   if (name.toLowerCase() === app.account.name.toLowerCase()) { setFriendStatus("That's you.", true); return; }
-  if (friends().some((x) => x.name.toLowerCase() === name.toLowerCase())) { setFriendStatus(`${name} is already your friend.`); return; }
+  if (friends().some((x) => x.name.toLowerCase() === name.toLowerCase())) { setFriendStatus(`${displayName(name)} is already your friend.`); return; }
   $('#on-add').disabled = true;
   const r = await requestFriend(name);
   $('#on-add').disabled = false;
@@ -2571,7 +2582,7 @@ $('#on-add').addEventListener('click', async () => {
   $('#on-addcode').value = '';
   applyAccount(r.local ? currentAccount() : r);
   if (!r.local) net.poke(r.name || name);
-  setFriendStatus(r.status === 'friends' ? `You and ${r.name || name} are now friends.` : `Friend request sent to ${r.name || name}. They'll appear here once they accept.`
+  setFriendStatus(r.status === 'friends' ? `You and ${displayName(r.name || name)} are now friends.` : `Friend request sent to ${displayName(r.name || name)}. They'll appear here once they accept.`
     + (r.unverified ? " (The game can't check that this account exists until the account database is connected.)" : ''));
   refreshPresence();
 });
@@ -2582,7 +2593,7 @@ $('#on-back').addEventListener('click', () => { net.leave(); enterTitle(); });
 let inviteTimer;
 net.onInvite = ({ from, room, tourney: tcode }) => {
   if (net.active || !(room || tcode) || !app.account || app.account.guest || tourney.active || app.tmatch) return;
-  $('#inv-from').textContent = from;
+  $('#inv-from').replaceChildren(nameNode(from));
   $('#inv-what').textContent = tcode ? 'a TOURNAMENT' : 'an online fight';
   $('#invite-toast').dataset.tourney = tcode || '';
   $('#invite-toast').hidden = false;
@@ -2786,7 +2797,7 @@ function watchable() {
   }));
   return out;
 }
-const matchTitle = (m) => `${tourney.s.players[m.a].name} vs ${tourney.s.players[m.b].name}`;
+const matchTitle = (m) => `${displayName(tourney.s.players[m.a].name)} vs ${displayName(tourney.s.players[m.b].name)}`;
 
 // while watching: which match, and arrows to flick to the others
 function renderWatchBar() {
@@ -2929,7 +2940,7 @@ function renderTourney() {
         const p = idx === null ? null : s.players[idx];
         row.className = 't-p' + (idx === null ? ' tbd' : m.w === null ? '' : m.w === idx ? ' win' : ' lose')
           + (idx !== null && idx === tourney.me ? ' me' : '') + (p?.gone && !p.cpu ? ' gone' : '');
-        row.textContent = p ? p.name + (idx === tourney.me ? ' (you)' : '') + (p.gone && !p.cpu ? ' · reconnecting…' : '') : 'TBD';
+        row.textContent = p ? displayName(p.name) + (idx === tourney.me ? ' (you)' : '') + (p.gone && !p.cpu ? ' · reconnecting…' : '') : 'TBD';
         box.appendChild(row);
       }
       ms.appendChild(box);
@@ -2940,7 +2951,7 @@ function renderTourney() {
     const champ = s.players[s.champ];
     const p = document.createElement('p');
     p.className = 't-champ';
-    p.textContent = `🏆 ${champ.name} ${s.champ === tourney.me ? '(YOU!)' : ''} WINS THE TOURNAMENT`;
+    p.textContent = `🏆 ${displayName(champ.name)} ${s.champ === tourney.me ? '(YOU!)' : ''} WINS THE TOURNAMENT`;
     cols.after(p);
     $$('.t-champ').forEach((x) => { if (x !== p) x.remove(); });
     tStatus(s.champ === tourney.me ? 'You are the champion!' : 'The tournament is over. Leave it to start a new one.');
@@ -2960,7 +2971,7 @@ function renderTourneyLobby(s) {
   ol.innerHTML = '';
   for (const [p, i] of live) {
     const li = document.createElement('li');
-    li.textContent = p.name + (i === 0 ? ' (host)' : '') + (i === tourney.me ? ' (you)' : '') + (p.gone ? ' · reconnecting…' : '');
+    li.textContent = displayName(p.name) + (i === 0 ? ' (host)' : '') + (i === tourney.me ? ' (you)' : '') + (p.gone ? ' · reconnecting…' : '');
     if (i === tourney.me) li.className = 'me';
     ol.appendChild(li);
   }
@@ -2974,7 +2985,7 @@ function renderTourneyLobby(s) {
   $('#t-start').hidden = !tourney.isHost;
   $('#t-invitebox').hidden = !!app.account?.guest;
   renderTourneyInvites(s);
-  if (!tourney.isHost) tStatus(`You're in! Waiting for ${s.players[0].name} to start the tournament…`);
+  if (!tourney.isHost) tStatus(`You're in! Waiting for ${displayName(s.players[0].name)} to start the tournament…`);
   else tStatus(live.length < 2 ? 'Share the code or invite friends. Once someone joins you can start.'
     : live.length >= TOURNEY_MAX ? 'Full! Start when ready.'
       : `Start whenever you're ready: ${live.length} players${bracketSize(live.length) > live.length ? ` + ${bracketSize(live.length) - live.length} CPU fighter${bracketSize(live.length) - live.length > 1 ? 's' : ''}` : ''}. More can still join.`);
@@ -2991,7 +3002,7 @@ function renderTourneyInvites(s) {
     const li = document.createElement('li');
     const nm = document.createElement('span');
     nm.className = 'fname';
-    nm.textContent = f.name;
+    nm.replaceChildren(nameNode(f.name));
     const b = document.createElement('button');
     b.className = 'mini';
     b.type = 'button';
@@ -2999,10 +3010,10 @@ function renderTourneyInvites(s) {
     b.addEventListener('click', async () => {
       unlockAudio();
       b.disabled = true;
-      tStatus(`Inviting ${f.name}…`);
+      tStatus(`Inviting ${displayName(f.name)}…`);
       const ok = await net.inviteTourney(f, s.code).catch(() => false);
       b.disabled = false;
-      tStatus(ok ? `Invite sent to ${f.name}.` : `Invite sent to ${f.name}: they'll see it within a few seconds if they have the game open. You can also send them the code ${s.code}.`);
+      tStatus(ok ? `Invite sent to ${displayName(f.name)}.` : `Invite sent to ${displayName(f.name)}: they'll see it within a few seconds if they have the game open. You can also send them the code ${s.code}.`);
     });
     li.append(nm, b);
     ul.appendChild(li);
@@ -3017,8 +3028,8 @@ function tourneyDrive() {
   const s = tourney.s;
   const key = `${s.code}-${mm.r}-${mm.i}`;
   const opp = s.players[mm.opp];
-  const info = { r: mm.r, i: mm.i, oppIdx: mm.opp, oppName: opp.name };
-  const label = `Your ${roundLabel(mm.r)} vs ${opp.name}`;
+  const info = { r: mm.r, i: mm.i, oppIdx: mm.opp, oppName: displayName(opp.name) };
+  const label = `Your ${roundLabel(mm.r)} vs ${displayName(opp.name)}`;
   if (opp.cpu) {
     tStatus(`${label}. Get ready…`);
     if (tDriving === key) return;
@@ -3034,7 +3045,7 @@ function tourneyDrive() {
   }
   if (mm.m.a === tourney.me) {
     // I open the room and tell the host its code; they join it
-    tStatus(`${label}. Waiting for ${opp.name} to connect…`);
+    tStatus(`${label}. Waiting for ${displayName(opp.name)} to connect…`);
     if (tDriving === key) return;
     tDriving = key;
     tPending = info;
@@ -3053,14 +3064,14 @@ function tourneyDrive() {
       setTimeout(() => { tDriving = ''; tourneyDrive(); }, 3000);
     });
   } else {
-    if (!mm.m.room) { tStatus(`${label}. Waiting for ${opp.name}…`); return; }
+    if (!mm.m.room) { tStatus(`${label}. Waiting for ${displayName(opp.name)}…`); return; }
     tStatus(`${label}. Connecting…`);
     if (tDriving === key + mm.m.room) return;
     tDriving = key + mm.m.room;
     tPending = info;
     net.joinRoom(mm.m.room).catch(() => {
       tPending = null;
-      tStatus(`Could not reach ${opp.name}. Trying again…`, true);
+      tStatus(`Could not reach ${displayName(opp.name)}. Trying again…`, true);
       setTimeout(() => { tDriving = ''; tourneyDrive(); }, 3000);
     });
   }
@@ -3295,7 +3306,7 @@ async function setAccount(acc) {
 function renderBadge() {
   const b = $('#acct-badge');
   const n = app.account?.requests?.length || 0;
-  b.textContent = app.account ? `👤 ${app.account.name}${n ? ` (${n})` : ''}` : '👤 Log in';
+  b.textContent = app.account ? `👤 ${displayName(app.account.name)}${n ? ` (${n})` : ''}` : '👤 Log in';
   b.classList.toggle('alert', n > 0);
   b.hidden = !['title', 'online'].includes(app.screen);
 }
@@ -3316,6 +3327,9 @@ function renderAccount() {
   $('#acc-tab-login').classList.toggle('ghost', accMode !== 'login');
   $('#acc-tab-create').classList.toggle('ghost', accMode !== 'create');
   $('#acc-submit').textContent = accMode === 'login' ? 'LOG IN' : 'CREATE ACCOUNT';
+  $('#acc-namelabel').textContent = accMode === 'login' ? 'Name (or name#TAG)' : 'Name';
+  $('#acc-namehint').hidden = accMode !== 'create';
+  $('#acc-name').maxLength = accMode === 'login' ? 19 : 14;
   $('#acc-pin').autocomplete = accMode === 'login' ? 'current-password' : 'new-password';
   // signed in: only Back / Switch account / Log out; switching only logs in to another
   // account (new accounts are made after logging out)
