@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Creative Kombat</title>
+<!-- added to the Home Screen it runs full screen (iPhone Safari can't make a page full screen) -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Creative Kombat">
+<meta name="theme-color" content="#0f0709">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600;800&display=swap">
+<style>
+/* Layout: full-bleed 3D canvas; DOM screens float over it like an arcade cabinet's marquee + HUD. */
+:root {
+  --night: #0f0709;       /* page + letterbox */
+  --smoke: #1c1114;       /* panels */
+  --bone: #f5ecdf;        /* primary text */
+  --dust: #b9a595;        /* secondary text */
+  --gold: #f4c542;        /* titles, highlights */
+  --gold-deep: #9a6417;
+  --ember: #ff6a1a;       /* action accents */
+  --p1: #3fa9ff;
+  --p2: #ff3b4d;
+  --hp: #f4c542;
+  --hp-low: #ff3b4d;
+  --display: 'Bungee', Impact, 'Arial Black', sans-serif;
+  --body: 'Rubik', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--night); color: var(--bone);
+  font-family: var(--body); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: none; }
+/* iPhone Safari zooms into any text box under 16px when you tap it (and the game blocks
+   pinch-zoom, so you'd be stuck zoomed in) */
+input:not([type=range]), select, textarea { font-size: 16px !important; }
+button, .btn, .tb { touch-action: manipulation; }
+#touch .tb { touch-action: none; }
+#fs-tip { z-index: 50; }
+.fs-tip ol { color: var(--bone); font-size: 15px; line-height: 1.6; padding-left: 22px; margin: 8px 0 14px; }
+.fs-tip .ios-share { display: inline-block; border: 2px solid var(--gold); border-radius: 4px; padding: 0 5px; color: var(--gold); font-size: 13px; }
+.fs-tip .btn { width: 100%; justify-content: center; }
+/* tournament */
+.tourney { width: min(760px, 100%); }
+#t-code { font-family: var(--display); font-size: 26px; letter-spacing: .12em; color: var(--gold); margin: 0 6px; }
+#t-players { margin: 6px 0 12px; padding-left: 24px; columns: 2; column-gap: 24px; }
+#t-players li { padding: 3px 0; break-inside: avoid; }
+#t-players li.me { color: var(--gold); font-weight: 800; }
+#t-players li.empty { color: var(--dust); font-style: italic; }
+#t-invites { list-style: none; padding: 0; margin: 8px 0 12px; display: flex; flex-direction: column; gap: 6px; }
+#t-invites li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,.04); border-radius: 3px; }
+#t-invites .fname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#t-invites .empty { color: var(--dust); font-size: 13px; background: none; }
+#t-start { width: 100%; justify-content: center; }
+.t-cols { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; align-items: stretch; overflow-x: auto; }
+.t-col { display: flex; flex-direction: column; gap: 6px; }
+.t-ms { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 10px; }
+.t-col h4 { margin: 0 0 2px; font-family: var(--display); font-weight: 400; font-size: 13px; letter-spacing: .08em; color: var(--dust); text-align: center; }
+.t-match { border: 1px solid rgba(245,236,223,.18); border-radius: 4px; background: rgba(255,255,255,.04); overflow: hidden; }
+.t-match.live { border-color: var(--ember); box-shadow: 0 0 10px rgba(255,106,26,.35); }
+.t-match .t-p { padding: 5px 8px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-match .t-p + .t-p { border-top: 1px solid rgba(245,236,223,.1); }
+.t-match .t-p.win { color: var(--gold); font-weight: 800; }
+.t-match .t-p.win::after { content: ' ✓'; }
+.t-match .t-p.lose { color: #7d6d64; text-decoration: line-through; }
+.t-match .t-p.tbd { color: #7d6d64; font-style: italic; }
+.t-match .t-p.me { background: rgba(63,169,255,.18); }
+.t-match .t-p.gone { opacity: .55; }
+#t-live { margin: 0 0 10px; text-align: center; }
+#t-live h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: .12em; color: #ffcf6b; }
+.t-live-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+#watch-bar { position: fixed; z-index: 9; left: 50%; bottom: max(10px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+  background: rgba(10,4,6,.8); padding: 6px 8px; border-radius: 6px; max-width: calc(100vw - 32px); }
+#wb-name { font-size: 12px; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+#watch-bar .mini[hidden] { display: none; }
+.t-match .t-watch { width: 100%; border-radius: 0; font-size: 11px; padding: 3px 0; }
+.t-champ { text-align: center; font-family: var(--display); color: var(--gold); font-size: clamp(20px, 4vw, 30px); margin: 12px 0 0; }
+#t-status { min-height: 1.4em; color: var(--gold); margin-bottom: 0; font-weight: 600; }
+#t-status.err { color: #ff8a8a; }
+@media (max-width: 560px) { .t-match .t-p { font-size: 11px; padding: 4px 5px; } #t-players { columns: 1; } }
+/* fighter intro caption (before round 1) and the fatality flash */
+#intro-card { position: fixed; z-index: 7; bottom: max(14%, calc(env(safe-area-inset-bottom) + 70px)); display: flex; flex-direction: column; gap: 4px; pointer-events: none;
+  animation: icin .45s cubic-bezier(.2,1.4,.4,1) both; max-width: 80vw; }
+#intro-card.left { left: max(5vw, env(safe-area-inset-left)); align-items: flex-start; }
+#intro-card.right { right: max(5vw, env(safe-area-inset-right)); align-items: flex-end; --dir: 1; }
+#intro-card .ic-tag { font-family: var(--display); letter-spacing: .04em; font-size: clamp(36px, 8.5vw, 100px); line-height: 1; color: var(--gold); text-shadow: 0 3px 0 #3a1606, 0 0 18px rgba(0,0,0,.6); }
+#intro-card .ic-name { font-family: var(--body); font-weight: 800; letter-spacing: .22em; font-size: clamp(12px, 2.2vw, 20px); color: #fff; text-shadow: 0 2px 6px #000; }
+@keyframes icin { from { transform: translateX(calc(-40vw + var(--dir, 0) * 80vw)); opacity: 0; } }
+body.cinema #hud, body.cinema #touch, body.cinema .corner { visibility: hidden; }
+#announce span.vs { font-size: clamp(64px, 16vw, 190px); }
+#white-flash { position: fixed; inset: 0; z-index: 6; background: #fff; opacity: 0; pointer-events: none; }
+#white-flash.go { animation: wflash .7s ease-out; }
+@keyframes wflash { 0% { opacity: .95; } 100% { opacity: 0; } }
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+
+/* ── screens ── */
+.screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  z-index: 10; }
+.modal { background: rgba(10, 4, 6, 0.72); backdrop-filter: blur(3px); }
+.logo { font-family: var(--display); font-weight: 400; line-height: 0.9; text-align: center; letter-spacing: 0.02em;
+  font-size: clamp(44px, 11vw, 132px); margin: 0; text-wrap: balance;
+  background: linear-gradient(180deg, #fff6d0 0%, var(--gold) 45%, var(--gold-deep) 50%, #ffd978 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 4px 0 #3a1606) drop-shadow(0 0 28px rgba(255, 106, 26, 0.55)); }
+.logo small { display: block; font-size: 0.28em; letter-spacing: 0.35em; margin-top: 0.35em; }
+.menu { display: flex; flex-direction: column; gap: 10px; margin-top: clamp(20px, 5vh, 48px); width: min(340px, 100%); }
+/* when the title screen doesn't fit (a phone on its side), the whole screen scrolls down to the
+   last buttons; the logo and menu look the same */
+#fps { align-self: center; font: 700 12px/1 system-ui, sans-serif; color: #fff; background: rgba(0,0,0,.45); padding: 5px 7px; border-radius: 4px; pointer-events: none; white-space: nowrap; }
+#fps[hidden] { display: none; }
+/* phones: no 'press ✕ / Enter' (no keyboard or controller there) */
+@media (pointer: coarse) { .start-hint { display: none; } }
+body.touch .start-hint { display: none; }
+body.fighting #btn-install { display: none; }
+/* menus that don't fit (a phone on its side) scroll */
+.screen.modal { justify-content: safe center; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.screen.modal > * { flex-shrink: 0; }
+.set-panel { width: min(560px, 100%); min-height: min(690px, calc(100vh - 32px)); min-height: min(690px, calc(100dvh - 32px)); display: flex; flex-direction: column; }
+.set-panel > .ctl-foot { margin-top: auto; }
+.set-panel h2 { text-align: center; }
+.tabs { display: flex; gap: 6px; margin: 4px 0 14px; border-bottom: 2px solid rgba(244,197,66,.35); }
+.tab { flex: 1; appearance: none; border: 2px solid rgba(244,197,66,.25); border-bottom: 0; background: rgba(0,0,0,.25); color: #b9a9a0; padding: 9px 6px;
+  font-family: var(--display); font-size: 15px; letter-spacing: .06em; cursor: pointer; border-radius: 4px 4px 0 0; margin-bottom: -2px; }
+.tab.on { color: var(--gold); border-color: rgba(244,197,66,.7); background: rgba(70,34,20,.9); }
+.set-rows { display: flex; flex-direction: column; }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 2px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.set-label { font-weight: 700; letter-spacing: .04em; }
+.opt { appearance: none; min-width: 150px; padding: 8px 12px; border: 2px solid rgba(244,197,66,.45); border-radius: 4px; background: rgba(20,10,10,.9);
+  color: var(--gold); font-weight: 800; font-size: 14px; letter-spacing: .06em; cursor: pointer; }
+.opt.focus, .opt:hover { border-color: var(--gold); background: rgba(70,34,20,.95); }
+.vol-ctl { display: flex; align-items: center; gap: 8px; }
+.vol-ctl .opt { min-width: 80px; }
+.step { appearance: none; width: 36px; height: 36px; border: 2px solid rgba(244,197,66,.45); border-radius: 50%; background: rgba(20,10,10,.9); color: var(--gold); font-size: 20px; cursor: pointer; }
+.set-panel { position: relative; }
+.ctl-ask { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8,3,4,.72); border-radius: 6px; z-index: 2; }
+.ctl-ask[hidden] { display: none; }
+.ctl-ask-box { background: var(--smoke); border: 2px solid var(--gold); border-radius: 6px; padding: 18px; width: min(360px, 90%); text-align: center; }
+.ctl-ask-box p { margin: 0 0 14px; font-weight: 700; }
+.ctl-ask-btns { display: flex; gap: 10px; }
+.ctl-ask-btns .btn { flex: 1; justify-content: center; font-size: 15px; }
+.ctl-ask-btns [data-ask=reset] { border-color: #ff5a3c; color: #ffb4a4; }
+.set-hint { font-size: 13px; opacity: .7; margin: 10px 0 4px; }
+#screen-title { justify-content: safe center; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+#screen-title > * { flex-shrink: 0; }
+.btn { appearance: none; border: 2px solid rgba(244, 197, 66, 0.35); background: linear-gradient(180deg, rgba(40, 20, 18, 0.9), rgba(20, 10, 10, 0.9));
+  padding: 13px 18px; border-radius: 4px; font-family: var(--display); font-size: 18px; letter-spacing: 0.06em; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; transition: transform .08s, border-color .12s, background .12s; }
+.btn .val { font-family: var(--body); font-weight: 800; font-size: 14px; color: var(--gold); letter-spacing: 0.08em; }
+.btn:hover, .btn.focus { border-color: var(--gold); background: linear-gradient(180deg, #5a2a12, #2a120c); transform: translateX(4px); }
+.btn.focus::before { content: '▶'; color: var(--ember); margin-right: -4px; font-size: 13px; }
+.hint { margin-top: 18px; color: var(--dust); font-size: 13px; letter-spacing: 0.05em; text-align: center; max-width: 46ch; }
+.blink { animation: blink 1.1s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+
+/* ── select ── */
+#screen-select { justify-content: space-between; }
+@media (max-width: 600px) { .sel-top { padding-inline: 84px 84px; } .sel-head { text-wrap: balance; } }
+#rotate-hint { display: none; position: fixed; left: 0; right: 0; bottom: max(230px, calc(env(safe-area-inset-bottom) + 230px)); text-align: center; z-index: 6; font-size: 12px; font-weight: 800;
+  letter-spacing: .12em; color: var(--dust); pointer-events: none; padding-inline: 16px; }
+@media (orientation: portrait) { html:not(.rot) body.touch.fighting #rotate-hint { display: block; } }
+/* a phone held upright: the whole game is turned a quarter turn, so it plays sideways (viewport.js) */
+html.rot, html.rot body { overflow: hidden; }
+/* no Android 'stretch' when a menu is scrolled past its end (it squashed the whole game) */
+html, body, .screen { overscroll-behavior: none; }
+html.rot body { position: fixed; top: 0; left: 0; width: var(--sh); height: var(--sw); transform-origin: 0 0; transform: translateX(var(--sw)) rotate(90deg); }
+.sel-head { font-family: var(--display); font-size: clamp(20px, 4vw, 34px); color: var(--gold); letter-spacing: 0.06em;
+  text-shadow: 0 3px 0 #3a1606; text-align: center; }
+.sel-hint { font-size: clamp(13px, 2.2vw, 16px); color: var(--gold); text-align: center; margin-top: 6px; font-weight: 700; text-shadow: 0 2px 0 #3a1606; }
+.sel-sub { font-size: 13px; color: var(--dust); text-align: center; margin-top: 4px; letter-spacing: 0.08em; text-transform: uppercase; }
+.plates { width: 100%; display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; flex: 1; padding-bottom: 12px; }
+.plate { max-width: 44%; display: flex; flex-direction: column; gap: 2px; }
+.plate.p2 { text-align: right; align-items: flex-end; }
+.plate .tag { font-family: var(--display); font-size: 13px; padding: 2px 8px; border-radius: 2px; align-self: flex-start; color: #0b0507; }
+.plate.p2 .tag { align-self: flex-end; }
+.plate.p1 .tag { background: var(--p1); } .plate.p2 .tag { background: var(--p2); }
+.plate .nm { font-family: var(--display); font-size: clamp(20px, 4.2vw, 40px); line-height: 1; text-shadow: 0 3px 0 #000, 0 0 18px rgba(0,0,0,.8); overflow-wrap: anywhere; }
+.plate .tl { font-size: 13px; color: var(--dust); text-shadow: 0 1px 2px #000; }
+.plate .sp { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; color: var(--gold); text-shadow: 0 1px 2px #000; }
+.plate.locked .nm { color: var(--gold); }
+.grid { display: grid; grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr)); gap: 6px;
+  /* tiles small enough that all the rows fit in about 40% of the screen height */
+  width: min(calc(var(--cols, 5) * 92px), 100%, calc(var(--cols, 5) * 40vh / var(--rows, 2)));
+  max-height: 48vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  background: rgba(15, 7, 9, 0.75); padding: 8px; border: 2px solid rgba(244, 197, 66, 0.3); border-radius: 4px; }
+.tile { position: relative; aspect-ratio: 1; max-width: 100%; border: 2px solid #3a2a24; background: radial-gradient(circle at 50% 35%, #4a2c22, #1a0e0e);
+  border-radius: 3px; overflow: hidden; cursor: pointer; padding: 0; }
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile .ini { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--display); font-size: 22px; color: var(--dust); }
+.tile .lbl { position: absolute; left: 0; right: 0; bottom: 0; font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-align: center;
+  background: linear-gradient(transparent, rgba(0,0,0,.85)); padding: 8px 2px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile.locked { cursor: not-allowed; filter: grayscale(1) brightness(0.6); }
+.tile.c1 { border-color: var(--p1); box-shadow: 0 0 0 2px var(--p1), 0 0 18px var(--p1); }
+.tile.c2 { border-color: var(--p2); box-shadow: 0 0 0 2px var(--p2), 0 0 18px var(--p2); }
+.tile.c1.c2 { border-color: var(--p1) var(--p2) var(--p2) var(--p1); box-shadow: -3px -3px 12px var(--p1), 3px 3px 12px var(--p2); }
+.tile .who { position: absolute; top: 2px; font-family: var(--display); font-size: 10px; padding: 0 4px; color: #0b0507; }
+.tile .who.w1 { left: 2px; background: var(--p1); } .tile .who.w2 { right: 2px; background: var(--p2); }
+
+/* ── vs splash ── */
+#screen-vs { background: rgba(10, 4, 6, 0.55); gap: 8px; }
+.vs-row { display: flex; align-items: center; justify-content: center; gap: clamp(10px, 4vw, 40px); width: 100%; }
+.vs-card { display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(38vw, 260px); }
+.vs-card img { width: 100%; aspect-ratio: 1; object-fit: cover; border: 3px solid var(--p1); border-radius: 4px; background: #1a0e0e; }
+.vs-card.p2 img { border-color: var(--p2); }
+.vs-card .nm { font-family: var(--display); font-size: clamp(16px, 3.5vw, 30px); text-align: center; }
+.vs-x { font-family: var(--display); font-size: clamp(48px, 12vw, 120px); color: var(--ember); text-shadow: 0 4px 0 #3a0a06, 0 0 30px var(--ember); }
+#screen-vs .vs-card.p1 { animation: slideL .45s cubic-bezier(.2,1.4,.4,1) both; }
+#screen-vs .vs-card.p2 { animation: slideR .45s cubic-bezier(.2,1.4,.4,1) both; }
+#screen-vs .vs-x { animation: slam .5s .25s cubic-bezier(.2,1.6,.4,1) both; }
+@keyframes slideL { from { transform: translateX(-60vw); } }
+@keyframes slideR { from { transform: translateX(60vw); } }
+@keyframes slam { from { transform: scale(4); opacity: 0; } }
+
+/* ── HUD ── */
+#hud { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: start;
+  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); pointer-events: none; }
+.hbar { display: flex; gap: 8px; align-items: flex-start; min-width: 0; }
+.hbar.p2 { flex-direction: row-reverse; }
+.pfp { width: 46px; height: 46px; flex: none; border: 2px solid var(--p1); border-radius: 3px; background: #1a0e0e center/cover; }
+.hbar.p2 .pfp { border-color: var(--p2); }
+.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hbar.p2 .meta { align-items: flex-end; }
+.hbar .name { font-family: var(--display); font-size: clamp(11px, 2vw, 16px); text-shadow: 0 2px 0 #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.health { position: relative; width: 100%; height: 18px; background: #2a0b0e; border: 2px solid #e9d7b8; border-radius: 2px; overflow: hidden;
+  box-shadow: 0 2px 0 #000; }
+.health i { position: absolute; top: 0; bottom: 0; left: 0; width: 100%; transform-origin: left; }
+.hbar.p2 .health i { left: auto; right: 0; transform-origin: right; }
+.health .hp { position: absolute; top: 50%; left: 6px; transform: translateY(-50%); z-index: 1; font: 800 12px/1 var(--body); color: #fff;
+  text-shadow: 0 1px 0 #000, 0 0 3px #000; font-variant-numeric: tabular-nums; pointer-events: none; }
+.hbar.p2 .health .hp { left: auto; right: 6px; }
+.health .trail { background: #fff; opacity: .85; }
+.health .fill { background: linear-gradient(180deg, #ffe38a, var(--hp) 50%, #c98a14); }
+.health.low .fill { background: linear-gradient(180deg, #ff8a8a, var(--hp-low) 50%, #a3121f); animation: pulse .5s infinite alternate; }
+@keyframes pulse { to { filter: brightness(1.4); } }
+.sub { display: flex; gap: 8px; align-items: center; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; }
+.hbar.p2 .sub { flex-direction: row-reverse; }
+.wins { display: flex; gap: 4px; }
+.wins b { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--gold); display: block; }
+.wins b.on { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+.spec { color: var(--dust); padding: 1px 6px; border-radius: 2px; background: rgba(255, 255, 255, .06); }
+.spec.used { text-decoration: line-through; opacity: .45; }
+.spec.ready { color: #0b0507; background: var(--gold); box-shadow: 0 0 10px var(--ember); }
+.roll { color: var(--dust); padding: 1px 6px; border-radius: 2px; background: rgba(255, 255, 255, .06); font-size: .9em; }
+.roll.ready { color: #06141f; background: #7fd0ff; }
+.roll:not(.ready) { opacity: .45; }
+#timer { font-family: var(--display); font-size: clamp(26px, 5vw, 44px); line-height: 1; color: var(--gold); text-shadow: 0 3px 0 #3a1606;
+  min-width: 2.2ch; text-align: center; font-variant-numeric: tabular-nums; }
+#timer.hurry { color: var(--p2); }
+.combo { position: fixed; top: 22%; z-index: 6; font-family: var(--display); font-size: clamp(20px, 4vw, 36px); color: var(--gold);
+  text-shadow: 0 3px 0 #3a1606, 0 0 16px var(--ember); pointer-events: none; opacity: 0; transition: opacity .3s; line-height: 1; }
+#practice { position: fixed; z-index: 6; left: 50%; top: 76px; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); text-align: center;
+  background: rgba(10,4,6,.62); border: 1px solid rgba(255,207,107,.35); border-radius: 6px; padding: 6px 10px; pointer-events: none; color: #fff; font-size: 13px; line-height: 1.4; }
+#practice b { color: var(--gold); letter-spacing: .2em; font-size: 11px; }
+#pr-combo { font-family: var(--display); font-size: 17px; color: var(--gold); }
+#pr-moves { font-size: 12px; opacity: .9; overflow-wrap: anywhere; }
+#pr-last { font-size: 11px; opacity: .7; }
+#pr-fx { font-size: 12px; color: #9fe3ff; }
+#pr-fx:empty { display: none; }
+#practice { transition: opacity .6s; }
+#practice.gone { opacity: 0; }
+.combo small { display: block; font-size: 0.45em; letter-spacing: .2em; }
+#combo0 { left: 5%; } #combo1 { right: 5%; text-align: right; }
+.combo.show { opacity: 1; transition: none; animation: pop .25s cubic-bezier(.2,1.8,.4,1); }
+@keyframes pop { from { transform: scale(1.8); } }
+
+#smoke-screen { position: fixed; inset: 0; z-index: 4; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(ellipse at 30% 40%, rgba(225,225,228,.92), rgba(190,190,196,.75) 45%, rgba(150,150,158,.55) 80%),
+    radial-gradient(circle at 70% 60%, rgba(240,240,240,.8), transparent 50%); filter: blur(2px); }
+/* Michael's factory reset: the reset player's own screen fills with scrolling code and a countdown */
+#reset-screen { position: fixed; inset: 0; z-index: 4; pointer-events: none; opacity: 0; transition: opacity .25s; overflow: hidden;
+  background: linear-gradient(rgba(4,18,56,.42), rgba(4,18,56,.3)); }
+#reset-screen pre { position: absolute; inset: 0; margin: 0; padding: 10px 14px; font: 600 clamp(10px, 1.6vw, 15px)/1.35 ui-monospace, Menlo, Consolas, monospace;
+  color: #7dffb0; opacity: .55; white-space: pre; text-shadow: 0 0 6px rgba(80,255,160,.6); display: flex; flex-direction: column; justify-content: flex-end; }
+#reset-screen .rs-box { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 10px 18px 12px; text-align: center;
+  background: rgba(10,40,120,.85); border: 2px solid #7fd0ff; border-radius: 8px; color: #fff; font: 700 clamp(13px, 2.4vw, 22px) ui-monospace, Menlo, Consolas, monospace;
+  box-shadow: 0 0 24px rgba(80,160,255,.6); min-width: 240px; }
+#reset-screen .rs-time { display: block; font-size: 2em; color: #ffe36e; margin: 2px 0 6px; }
+#reset-screen .rs-bar { height: 8px; background: rgba(255,255,255,.2); border-radius: 4px; overflow: hidden; }
+#reset-screen .rs-bar i { display: block; height: 100%; background: #7fd0ff; }
+/* shown to whoever is stuck in Asis's cage */
+#cage-prompt { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); z-index: 6; pointer-events: none; text-align: center;
+  font-family: var(--display); font-size: clamp(18px, 4vw, 40px); line-height: 1; color: #f3ea9a; white-space: nowrap;
+  text-shadow: 0 3px 0 #3a3206, 0 0 18px #b9b25a; }
+#cage-prompt[hidden] { display: none; }
+#cage-prompt b { display: block; animation: cagepulse .5s ease-in-out infinite alternate; }
+#cage-prompt .bars { display: flex; gap: 5px; justify-content: center; margin-top: 10px; }
+#cage-prompt .bars i { width: clamp(10px, 2vw, 16px); height: clamp(16px, 3.4vw, 26px); border-radius: 3px; background: #b9b25a; box-shadow: inset 0 -3px 0 #7f7a33; }
+#cage-prompt .bars i.gone { opacity: .18; }
+@keyframes cagepulse { to { transform: scale(1.08); } }
+#announce { position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; pointer-events: none; text-align: center; padding-inline: 16px; }
+#announce span { font-family: var(--display); font-size: clamp(48px, 13vw, 150px); line-height: .95; text-wrap: balance;
+  background: linear-gradient(180deg, #fff6d0 0%, var(--gold) 45%, var(--gold-deep) 50%, #ffd978 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 5px 0 #3a1606) drop-shadow(0 0 30px rgba(255, 106, 26, .7)); animation: ann .5s cubic-bezier(.2,1.6,.4,1) both; }
+#announce span.red { background: linear-gradient(180deg, #ffd0d0, #ff3b4d 50%, #7a0a14 52%, #ff6a6a); -webkit-background-clip: text; background-clip: text; }
+#announce span.small { font-size: clamp(28px, 7vw, 72px); }
+#announce em { display: block; font-style: normal; font-family: var(--body); font-weight: 800; font-size: 16px; letter-spacing: .25em; color: var(--bone);
+  -webkit-text-fill-color: var(--bone); margin-top: 14px; filter: none; }
+@keyframes ann { from { transform: scale(2.4); opacity: 0; } }
+
+/* ── touch controls ── */
+#touch { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+.tb { position: absolute; pointer-events: auto; border: 2px solid rgba(245, 236, 223, .35); background: rgba(20, 10, 10, .55); border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--display); font-size: 13px; letter-spacing: .04em; touch-action: none; padding: 0; }
+.tb.down { background: rgba(244, 197, 66, .55); border-color: var(--gold); transform: scale(.94); }
+.tb[data-action=special] { border-radius: 999px; color: var(--gold); }
+#touch.editing { z-index: 40; background: rgba(0,0,0,.35); pointer-events: auto; }
+#touch.editing .tb { cursor: grab; }
+#touch.editing .tb.selected { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(244,197,66,.45), 0 0 14px var(--ember); }
+#touch-edit { position: fixed; z-index: 41; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(420px, calc(100vw - 32px));
+  text-align: center; background: rgba(20,10,10,.82); border: 2px solid rgba(244,197,66,.4); border-radius: 6px; padding: 10px 12px; }
+#touch-edit .te-row { display: flex; gap: 8px; }
+#touch-edit .te-row .btn { flex: 1; padding: 8px 6px; font-size: 14px; }
+#touch-edit .te-size { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-family: var(--display); color: var(--gold); }
+#touch-edit input[type=range] { flex: 1; accent-color: var(--gold); }
+#touch-edit p { margin: 8px 0 0; font-size: 12px; color: var(--dust); }
+#te-pct { min-width: 4.2ch; text-align: right; }
+#touch-edit .te-group { width: 100%; margin-top: 8px; padding: 8px 10px; font-size: 14px; justify-content: center; }
+#touch.editing .tb.selected.grouped { outline: 2px dashed var(--gold); outline-offset: 3px; }
+
+/* the select screen's back arrow (top left, like the corner buttons on the right) */
+.sel-back { position: fixed; z-index: 20; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 42px; height: 42px;
+  border-radius: 50%; border: 2px solid rgba(245,236,223,.3); background: rgba(20,10,10,.6); color: var(--bone); font-size: 22px; line-height: 1; cursor: pointer; }
+.sel-back:hover { border-color: var(--gold); color: var(--gold); }
+/* two players on one screen needs a keyboard or controllers: not offered on phones */
+body.touch [data-nav="2p"] { display: none; }
+body.offline [data-nav="online"] { display: none; }
+.btn.create { background: linear-gradient(180deg, #ffe08a, #f4b13a); color: #2a1206; }
+.sel-arena { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font: 700 14px system-ui, sans-serif; letter-spacing: .06em; color: #fff; background: rgba(20,10,10,.65); border: 2px solid rgba(244,197,66,.6); border-radius: 20px; padding: 8px 16px; cursor: pointer; z-index: 3; }
+/* ── corner buttons ── */
+.corner { position: fixed; z-index: 20; top: max(10px, env(safe-area-inset-top)); display: flex; gap: 8px; right: max(12px, env(safe-area-inset-right)); }
+.corner button { width: 38px; height: 38px; border-radius: 50%; border: 2px solid rgba(245,236,223,.3); background: rgba(20,10,10,.6); cursor: pointer;
+  font-size: 15px; display: grid; place-items: center; padding: 0; }
+/* practice: play your fatality on the dummy */
+.corner #btn-fatality { width: auto; border-radius: 19px; padding: 0 14px; font: 700 13px/1 system-ui, sans-serif; letter-spacing: .08em;
+  color: #ffd6d6; border-color: rgba(255,60,60,.65); background: rgba(90,8,8,.7); }
+.corner #btn-fatality[hidden] { display: none; }
+body.hudon .corner { top: auto; bottom: max(14px, env(safe-area-inset-bottom)); }
+body.touch.fighting .corner { bottom: auto; top: max(84px, calc(env(safe-area-inset-top) + 84px)); }
+
+.help { background: var(--smoke); border: 2px solid rgba(244,197,66,.4); border-radius: 6px; padding: 20px; width: min(560px, 100%);
+  max-height: 100%; overflow: auto; }
+.help h2 { font-family: var(--display); color: var(--gold); margin: 0 0 12px; font-weight: 400; font-size: 24px; }
+.help table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.help td, .help th { padding: 6px 4px; border-bottom: 1px solid rgba(245,236,223,.08); text-align: left; vertical-align: top; }
+.help th { color: var(--dust); font-weight: 600; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.help kbd { font-family: var(--body); font-weight: 800; background: #2c1c1a; border: 1px solid #5a403a; border-bottom-width: 3px; border-radius: 3px; padding: 1px 5px; font-size: 12px; }
+.help p { color: var(--dust); font-size: 13px; line-height: 1.5; }
+.ctl-wrap { overflow-x: auto; }
+.ctl { min-width: 460px; }
+.ctl th { font-size: 12px; white-space: nowrap; }
+.ctl tbody th { color: var(--bone); font-weight: 600; letter-spacing: .02em; text-transform: none; font-size: 14px; }
+.cell { width: 100%; min-width: 84px; padding: 7px 8px; border: 2px solid rgba(244,197,66,.25); border-radius: 3px; background: #2c1c1a;
+  font-weight: 800; font-size: 13px; cursor: pointer; text-align: center; white-space: normal; line-height: 1.3; }
+.cell:hover, .cell.focus { border-color: var(--gold); background: #5a2a12; }
+.cell.listening { border-color: var(--ember); color: var(--gold); animation: pulse .5s infinite alternate; }
+.ctl-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.ctl-foot .btn { flex: 1 1 140px; font-size: 14px; }
+.online { width: min(640px, 100%); }
+.online h3 { font-family: var(--display); font-weight: 400; color: var(--gold); font-size: 15px; letter-spacing: .06em; margin: 14px 0 8px; }
+.online input { font: inherit; font-weight: 600; color: var(--bone); background: #2c1c1a; border: 2px solid rgba(244,197,66,.3); border-radius: 3px;
+  padding: 9px 10px; min-width: 0; -webkit-user-select: text; user-select: text; }
+.online input:focus { outline: none; border-color: var(--gold); }
+.on-field { display: flex; flex-direction: column; gap: 4px; }
+.on-field label { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--dust); }
+.on-mycode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; }
+.on-mycode b { color: var(--bone); font-size: 16px; -webkit-user-select: text; user-select: text; }
+.on-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 6px; }
+.on-box { border: 1px solid rgba(245,236,223,.12); border-radius: 4px; padding: 10px 12px 12px; min-width: 0; }
+.on-box h3 { margin-top: 0; }
+.on-box .btn { width: 100%; justify-content: center; }
+.on-roomline { margin: 10px 0 6px; color: var(--bone); }
+.on-roomline b { font-family: var(--display); font-weight: 400; font-size: 30px; letter-spacing: .12em; color: var(--gold); margin-left: 6px; -webkit-user-select: text; user-select: text; }
+.on-wait { margin: 8px 0 0; }
+.on-joinrow { display: flex; gap: 8px; }
+.on-joinrow input { flex: 1; }
+#on-joincode { text-transform: uppercase; letter-spacing: .2em; font-family: var(--display); font-weight: 400; }
+.on-box .on-joinrow .btn, .on-joinrow .btn { width: auto; flex: none; padding-inline: 16px; }
+.mini { font-weight: 800; font-size: 13px; letter-spacing: .04em; border: 2px solid var(--gold); background: var(--gold); color: #1a0c06; border-radius: 3px; padding: 6px 10px; cursor: pointer; }
+.mini.ghost { background: transparent; color: var(--bone); border-color: rgba(245,236,223,.4); }
+.mini:disabled { opacity: .45; cursor: default; }
+#on-friends, #on-invites, #fr-requests { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+#on-friends li, #on-invites li, #fr-requests li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,.04); border-radius: 3px; }
+#on-friends .fname, #on-invites .fname, #fr-requests .fname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#on-friends .dot, #on-invites .dot { width: 9px; height: 9px; border-radius: 50%; background: #6b5d55; flex: none; }
+#on-friends .dot.on, #on-invites .dot.on { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+#on-friends .pending { color: var(--dust); font-size: 12px; }
+#fr-requests li { background: rgba(244,197,66,.14); }
+.acct-badge.alert { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 10px var(--ember); }
+#on-friends .empty, #on-invites .empty { color: var(--dust); font-size: 13px; background: none; }
+.acc-switchrow { margin: 0 0 6px; }
+.help-intro { margin-top: 0; }
+.credits { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.credits li { display: flex; gap: 10px; align-items: baseline; font-size: 13px; line-height: 1.35; }
+.credits b { color: var(--gold); min-width: 52px; letter-spacing: .06em; }
+#screen-help h3 { margin: 14px 0 6px; color: var(--gold); font-size: 15px; }
+.help-note { font-size: 13px; color: var(--dust); margin: 6px 0 0; }
+.combo-table td:last-child { white-space: nowrap; }
+#on-status, #acc-fstatus { min-height: 1.4em; color: var(--gold); margin-bottom: 0; }
+#on-status.err, #acc-fstatus.err { color: #ff8a8a; }
+.on-hint { color: var(--dust); font-size: 13px; margin: 4px 0 0; }
+#on-guestnote { color: var(--dust); font-size: 13px; }
+.acc-saved { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.acc-saved:empty { display: none; }
+.acc-saved button { font-weight: 800; padding: 8px 12px; border-radius: 3px; border: 2px solid rgba(244,197,66,.35); background: #2c1c1a; color: var(--bone); cursor: pointer; }
+.acc-saved button.on { border-color: var(--gold); background: #5a2a12; }
+.acc-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.acc-form { display: flex; flex-direction: column; gap: 6px; }
+.acc-form label { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--dust); margin-top: 4px; }
+.acc-form .btn { margin-top: 10px; justify-content: center; }
+#acc-status { min-height: 1.4em; color: #ff8a8a; }
+.acc-foot { display: flex; flex-wrap: wrap; gap: 8px; }
+.acct-badge { position: fixed; z-index: 20; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); max-width: 50vw;
+  font-weight: 800; font-size: 13px; color: var(--bone); background: rgba(20,10,10,.6); border: 2px solid rgba(245,236,223,.3); border-radius: 19px;
+  padding: 7px 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#invite-toast { position: fixed; z-index: 40; left: 50%; transform: translateX(-50%); top: max(14px, env(safe-area-inset-top)); width: min(420px, calc(100% - 32px));
+  background: var(--smoke); border: 2px solid var(--gold); border-radius: 6px; padding: 12px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+#invite-toast p { margin: 0 0 10px; }
+#invite-toast b { color: var(--gold); }
+#net-wait { position: fixed; z-index: 9; left: 50%; top: 40%; transform: translateX(-50%); background: rgba(10,4,6,.8); padding: 10px 16px; border-radius: 4px;
+  font-weight: 800; letter-spacing: .08em; }
+.result-quote { font-size: clamp(16px, 3vw, 22px); font-style: italic; color: var(--bone); margin-top: 10px; text-align: center; text-shadow: 0 2px 4px #000; }
+.loading { position: fixed; inset: 0; display: grid; place-items: center; z-index: 30; background: var(--night); font-family: var(--display); color: var(--gold); letter-spacing: .1em; }
+
+@media (max-height: 520px) {
+  .menu { margin-top: 12px; gap: 6px; } .btn { padding: 8px 14px; font-size: 15px; }
+  .plates { padding-bottom: 4px; } .sel-head { font-size: 20px; }
+}
+/* (turned sideways in software: the game is as short as the phone is narrow) */
+html.rot .menu { margin-top: 12px; gap: 6px; } html.rot .btn { padding: 8px 14px; font-size: 15px; }
+html.rot .plates { padding-bottom: 4px; } html.rot .sel-head { font-size: 20px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition: none !important; }
+}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div class="loading" id="loading">LOADING…</div>
+
+<div id="hud" hidden>
+  <div class="hbar p1"><div class="pfp"></div><div class="meta"><div class="name"></div>
+    <div class="health"><i class="trail"></i><i class="fill"></i><b class="hp">100%</b></div>
+    <div class="sub"><span class="wins"><b></b><b></b></span><span class="spec">SPECIAL</span><span class="roll" title="Combo breaker: double-tap back">ROLL</span></div></div></div>
+  <div id="timer">60</div>
+  <div class="hbar p2"><div class="pfp"></div><div class="meta"><div class="name"></div>
+    <div class="health"><i class="trail"></i><i class="fill"></i><b class="hp">100%</b></div>
+    <div class="sub"><span class="wins"><b></b><b></b></span><span class="spec">SPECIAL</span><span class="roll" title="Combo breaker: double-tap back">ROLL</span></div></div></div>
+</div>
+<div id="practice" hidden><b>PRACTICE</b><div id="pr-combo">Hit the dummy to see your combo</div><div id="pr-moves"></div><div id="pr-fx"></div><div id="pr-last"></div></div>
+<div class="combo" id="combo0"></div>
+<div class="combo" id="combo1"></div>
+<div id="smoke-screen" aria-hidden="true"></div>
+<div id="reset-screen" aria-hidden="true"><pre></pre><div class="rs-box">FACTORY RESET IN PROGRESS<span class="rs-time">5.0</span><div class="rs-bar"><i></i></div></div></div>
+<div id="cage-prompt" hidden><b>PUNCH YOUR WAY OUT!</b><div class="bars"></div></div>
+<div id="announce"></div>
+<div id="rotate-hint">TURN YOUR PHONE SIDEWAYS FOR A BIGGER VIEW</div>
+
+<section class="screen" id="screen-title" hidden>
+  <h1 class="logo" id="logo"></h1>
+  <div class="menu" role="menu">
+    <button class="btn create" data-nav="create">✦ CREATE</button>
+    <button class="btn" data-nav="1p">1 PLAYER</button>
+    <button class="btn" data-nav="2p">2 PLAYERS</button>
+    <button class="btn" data-nav="online">ONLINE 1V1</button>
+    <button class="btn" data-nav="tourney">TOURNAMENT</button>
+    <button class="btn" data-nav="practice">PRACTICE</button>
+    <button class="btn" data-nav="level">DIFFICULTY <span class="val" id="level-val">NORMAL</span></button>
+    <button class="btn" data-nav="settings">SETTINGS</button>
+    <button class="btn" data-nav="help">HOW TO PLAY</button>
+  </div>
+  <p class="hint start-hint"><span class="blink">Press ✕ / Enter or tap to start</span></p>
+</section>
+
+<section class="screen" id="screen-select" hidden>
+  <button class="sel-back" id="sel-back" type="button" aria-label="Back">←</button>
+  <div class="sel-top">
+    <div class="sel-head" id="sel-head">CHOOSE YOUR FIGHTER</div>
+    <div class="sel-sub" id="sel-sub"></div>
+    <div class="sel-hint" id="sel-hint" hidden></div>
+  </div>
+  <div class="plates">
+    <div class="plate p1"><span class="tag">P1</span><div class="nm"></div><div class="tl"></div><div class="sp"></div></div>
+    <div class="plate p2"><span class="tag">P2</span><div class="nm"></div><div class="tl"></div><div class="sp"></div></div>
+  </div>
+  <div class="grid" id="grid"></div>
+  <button class="sel-arena" id="sel-arena" type="button">ARENA ▸</button>
+</section>
+
+<section class="screen" id="screen-vs" hidden>
+  <div class="vs-row">
+    <div class="vs-card p1"><img alt=""><div class="nm"></div></div>
+    <div class="vs-x">VS</div>
+    <div class="vs-card p2"><img alt=""><div class="nm"></div></div>
+  </div>
+</section>
+
+<section class="screen modal settings" id="screen-graphics" hidden>
+  <div class="help set-panel">
+    <h2>SETTINGS</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab" data-tab="controls">CONTROLS</button>
+      <button class="tab" data-tab="graphics">GRAPHICS</button>
+      <button class="tab" data-tab="audio">AUDIO</button>
+    </div>
+    <div class="set-rows">
+      <div class="set-row"><span class="set-label">Quality</span><button class="opt" data-nav="preset" id="gfx-preset"></button></div>
+      <div class="set-row"><span class="set-label">Resolution</span><button class="opt" data-nav="res" id="gfx-res"></button></div>
+      <div class="set-row"><span class="set-label">Shadows</span><button class="opt" data-nav="shadows" id="gfx-shadows"></button></div>
+      <div class="set-row"><span class="set-label">Glow</span><button class="opt" data-nav="bloom" id="gfx-bloom"></button></div>
+      <div class="set-row" hidden><span class="set-label">HD models</span><button class="opt" data-nav="hd" id="gfx-hd"></button></div>
+      <div class="set-row"><span class="set-label">FPS limit</span><button class="opt" data-nav="cap" id="gfx-cap"></button></div>
+      <div class="set-row"><span class="set-label">Show FPS</span><button class="opt" data-nav="fps" id="gfx-fps"></button></div>
+    </div>
+    <p class="set-hint">Lower settings run smoother on phones; an FPS limit of 30 saves battery. HD models take effect after a reload.</p>
+    <div class="ctl-foot"><button class="btn" data-nav="back">DONE</button></div>
+  </div>
+</section>
+
+<section class="screen modal settings" id="screen-audio" hidden>
+  <div class="help set-panel">
+    <h2>SETTINGS</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab" data-tab="controls">CONTROLS</button>
+      <button class="tab" data-tab="graphics">GRAPHICS</button>
+      <button class="tab" data-tab="audio">AUDIO</button>
+    </div>
+    <div class="set-rows">
+      <div class="set-row"><span class="set-label">Sound</span><button class="opt" data-nav="sound" id="aud-sound"></button></div>
+      <div class="set-row"><span class="set-label">Volume</span><span class="vol-ctl"><button class="step" data-vol="-1" aria-label="Quieter">−</button><button class="opt" data-nav="volume" id="aud-volume"></button><button class="step" data-vol="1" aria-label="Louder">+</button></span></div>
+    </div>
+    <p class="set-hint">The announcer and the fighters' voices.</p>
+    <div class="ctl-foot"><button class="btn" data-nav="back">DONE</button></div>
+  </div>
+</section>
+
+<section class="screen modal" id="screen-pause" hidden>
+  <h2 class="logo" style="font-size:clamp(40px,9vw,80px)">PAUSED</h2>
+  <div class="menu">
+    <button class="btn" data-nav="resume">RESUME</button>
+    <button class="btn" data-nav="restart">RESTART MATCH</button>
+    <button class="btn" data-nav="select">CHARACTER SELECT</button>
+    <button class="btn" data-nav="settings">SETTINGS</button>
+    <button class="btn" data-nav="help">HOW TO PLAY</button>
+    <button class="btn" data-nav="title">QUIT TO TITLE</button>
+  </div>
+</section>
+
+<section class="screen" id="screen-result" hidden style="justify-content:flex-end">
+  <div class="menu" style="margin-bottom:6vh">
+    <button class="btn" data-nav="rematch">REMATCH</button>
+    <button class="btn" data-nav="select">CHARACTER SELECT</button>
+    <button class="btn" data-nav="title">TITLE SCREEN</button>
+  </div>
+</section>
+
+<section class="screen modal" id="screen-help" hidden>
+  <div class="help">
+    <h2>HOW TO PLAY</h2>
+    <p class="help-intro">Pick a friend and fight. Empty the other fighter's health bar to win the round. First to win 2 rounds wins the match. Every fighter has one special move per round. <b>Tournament</b>: knockout for 4, 8 or 16 fighters. Whoever joins plays; the empty seats are CPU fighters. Join with a code or an invite. <b>Practice</b>: try your combos and special on a training dummy that stands still and can't be knocked out with endless health (no timer, your special comes back each time); a panel lists each hit of your combo with its damage and what it did, and the total.</p>
+    <h3>Controls</h3>
+    <div class="ctl-wrap"><table>
+      <thead><tr><th>Move</th><th>Player 1</th><th>Player 2</th><th>Controller</th></tr></thead>
+      <tbody id="help-keys"></tbody>
+      <tbody><tr><td>Low kick</td><td colspan="3">Hold block/down + kick</td></tr>
+        <tr><td>Air attack</td><td colspan="3">Jump, then kick or punch</td></tr>
+        <tr><td>Dash</td><td colspan="3">Double-tap forward or back</td></tr>
+        <tr><td>Grab</td><td colspan="3">Punch + kick together. Goes through blocks</td></tr>
+        <tr><td>Counter</td><td colspan="3">Tap block just before a punch or kick lands: no damage, and they're stunned for 0.5 s</td></tr>
+        <tr><td>Combo breaker</td><td colspan="3">Double-tap back, even while being hit: roll away untouchable; backed into a wall, you roll under them to their other side. Every 5 s (ROLL under your health bar); on cooldown it's a back dash</td></tr>
+        <tr><td>Pause</td><td><kbd>Esc</kbd></td><td></td><td>Options / Menu</td></tr></tbody>
+    </table></div>
+    <h3>Combos</h3>
+    <div class="ctl-wrap"><table class="help-table combo-table">
+      <thead><tr><th>Combo</th><th>Buttons</th><th>What it does</th><th>Damage</th></tr></thead>
+      <tbody>
+        <tr><td>Hammer Fist</td><td><kbd>Punch</kbd> <kbd>Punch</kbd> <kbd>Punch</kbd> <kbd>Punch</kbd></td><td>Knocks them down</td><td>3+3+3+7</td></tr>
+        <tr><td>Haymaker</td><td><kbd>Kick</kbd> <kbd>Punch</kbd> <kbd>Punch</kbd> <kbd>Punch</kbd></td><td>Knocks them down and far away</td><td>4+3+3+7</td></tr>
+        <tr><td>Gut Punch</td><td><kbd>Punch</kbd> <kbd>Kick</kbd> <kbd>Punch</kbd> <kbd>Punch</kbd></td><td>Dazed (stars) for a moment</td><td>3+3+3+6</td></tr>
+        <tr><td>Spinning Backfist</td><td><kbd>Kick</kbd> <kbd>Kick</kbd> <kbd>Punch</kbd> <kbd>Punch</kbd></td><td>Knocks them down and away</td><td>4+3+3+7</td></tr>
+        <tr><td>Elbow Smash</td><td><kbd>Punch</kbd> <kbd>Punch</kbd> <kbd>Kick</kbd> <kbd>Punch</kbd></td><td>Knocks them down, slow to get up</td><td>3+3+3+7</td></tr>
+        <tr><td>Throw</td><td><kbd>Kick</kbd> <kbd>Punch</kbd> <kbd>Kick</kbd> <kbd>Punch</kbd></td><td>Throws them to the floor</td><td>4+3+3+7</td></tr>
+        <tr><td>Headbutt</td><td><kbd>Punch</kbd> <kbd>Kick</kbd> <kbd>Kick</kbd> <kbd>Punch</kbd></td><td>Dazed (stars) for longer</td><td>3+3+3+6</td></tr>
+        <tr><td>Double Palm</td><td><kbd>Kick</kbd> <kbd>Kick</kbd> <kbd>Kick</kbd> <kbd>Punch</kbd></td><td>Shoves them far back</td><td>4+3+3+7</td></tr>
+        <tr><td>Rising Knee</td><td><kbd>Punch</kbd> <kbd>Punch</kbd> <kbd>Punch</kbd> <kbd>Kick</kbd></td><td>Launches them. Hold <kbd>Jump</kbd> to follow them up</td><td>3+3+3+6</td></tr>
+        <tr><td>Launch Kick</td><td><kbd>Kick</kbd> <kbd>Punch</kbd> <kbd>Punch</kbd> <kbd>Kick</kbd></td><td>Launches them. Hold <kbd>Jump</kbd> to follow them up</td><td>4+3+3+6</td></tr>
+        <tr><td>Flip Kick</td><td><kbd>Punch</kbd> <kbd>Kick</kbd> <kbd>Punch</kbd> <kbd>Kick</kbd></td><td>Launches them high. Hold <kbd>Jump</kbd> to follow them up</td><td>3+3+3+6</td></tr>
+        <tr><td>Roundhouse</td><td><kbd>Kick</kbd> <kbd>Kick</kbd> <kbd>Punch</kbd> <kbd>Kick</kbd></td><td>Launches them. Hold <kbd>Jump</kbd> to follow them up</td><td>4+3+3+7</td></tr>
+        <tr><td>Crescent Kick</td><td><kbd>Punch</kbd> <kbd>Punch</kbd> <kbd>Kick</kbd> <kbd>Kick</kbd></td><td>Launches them. Hold <kbd>Jump</kbd> to follow them up</td><td>3+3+3+6</td></tr>
+        <tr><td>Scissor Kick</td><td><kbd>Kick</kbd> <kbd>Punch</kbd> <kbd>Kick</kbd> <kbd>Kick</kbd></td><td>Launches them. Hold <kbd>Jump</kbd> to follow them up</td><td>4+3+3+6</td></tr>
+        <tr><td>Tornado Kick</td><td><kbd>Punch</kbd> <kbd>Kick</kbd> <kbd>Kick</kbd> <kbd>Kick</kbd></td><td>Launches them high. Hold <kbd>Jump</kbd> to follow them up</td><td>3+3+3+6</td></tr>
+        <tr><td>Sky Kick</td><td><kbd>Kick</kbd> <kbd>Kick</kbd> <kbd>Kick</kbd> <kbd>Kick</kbd></td><td>Launches them highest. Hold <kbd>Jump</kbd> to follow them up</td><td>4+3+3+7</td></tr>
+        <tr><td>Dash punch</td><td><kbd>→</kbd><kbd>→</kbd> <kbd>Punch</kbd></td><td>Instant punch out of a forward dash; counts as the first Punch of a combo</td><td>4 + …</td></tr>
+        <tr><td>Air combo</td><td>After a launch: <kbd>Jump</kbd>, then <kbd>Punch</kbd> / <kbd>Kick</kbd> up to 3 times</td><td>Juggle them in the air; the 3rd air hit slams them down</td><td>3–4 each</td></tr>
+        <tr><td>Air counter</td><td>Launched: tap <kbd>Block</kbd> just before their air hit</td><td>No damage, and they're knocked out of the air</td><td>—</td></tr>
+        <tr><td>Special finish</td><td>Any hit, then <kbd>Special</kbd></td><td>Cancels into your special</td><td>+ special</td></tr>
+      </tbody>
+    </table></div>
+    <p class="help-note">Taller fighters reach further with their punches and kicks; shorter fighters move faster (walking and dashing) by the same proportion, so it's even.</p>
+    <p class="help-note">Any 4 hits of Punch and Kick make a combo; the 4th hit is a finisher picked by the buttons you pressed. Ending with a Kick launches them into the air. Each hit must land for the combo to continue. Later hits do a bit less damage.</p>
+    <h3>Special moves</h3>
+    <div class="ctl-wrap"><table class="help-table">
+      <thead><tr><th>Fighter</th><th>Special</th><th>Damage</th><th>Effect</th></tr></thead>
+      <tbody id="help-specials"></tbody>
+    </table></div>
+    <p class="help-note">Once per round. Specials can't be blocked, dodged or rolled out of, and hitting someone doesn't cancel their special: they can't be hurt until it has landed. If you both press special, whoever pressed first goes first, and the other one's special comes right after its whole animation ends.</p>
+    <h3>Make your own</h3>
+    <p class="help-note">CREATE on the title screen: your own fighters (your 3D models), their specials and your own arenas. TUTORIALS there show how.</p>
+    <div class="menu" style="margin-top:12px"><button class="btn" data-nav="close">GOT IT</button></div>
+  </div>
+</section>
+
+<section class="screen modal" id="screen-online" hidden>
+  <div class="help online">
+    <h2>ONLINE 1V1</h2>
+    <p class="on-mycode">Signed in as <b id="on-me"></b> <button class="mini ghost" id="on-switch" type="button">Account &amp; friends</button></p>
+    <div class="on-split">
+      <div class="on-box">
+        <h3>Host a match</h3>
+        <button class="btn" id="on-create" type="button">CREATE ROOM</button>
+        <div id="on-room" hidden>
+          <p class="on-roomline">Room code <b id="on-roomcode"></b></p>
+          <button class="mini" id="on-share" type="button">Share invite link</button>
+          <p class="on-wait">Waiting for your friend to join… The game starts by itself when they do. <b>Keep the game open on this screen</b>: if you switch apps to send the code, come back here right away.</p>
+        </div>
+      </div>
+      <div class="on-box" id="on-joinbox">
+        <h3>Join a match</h3>
+        <div class="on-joinrow">
+          <input id="on-joincode" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE" aria-label="Room code">
+          <button class="btn" id="on-join" type="button">JOIN</button>
+        </div>
+      </div>
+    </div>
+    <div id="on-invitebox">
+      <h3>Invite a friend</h3>
+      <ul id="on-invites" class="friend-list"></ul>
+    </div>
+    <p id="on-status" role="status"></p>
+    <div class="menu" style="margin-top:8px"><button class="btn" id="on-back" type="button">BACK</button></div>
+  </div>
+</section>
+
+<section class="screen modal" id="screen-tourney" hidden>
+  <div class="help online tourney">
+    <h2>TOURNAMENT</h2>
+    <!-- not in one yet: create or join -->
+    <div id="t-entry">
+      <p class="help-intro">8 fighters, knockout: quarterfinals, semifinals, final. Lose once and you're out. Seats nobody takes are filled by CPU fighters.</p>
+      <div class="on-split">
+        <div class="on-box">
+          <h3>Host a tournament</h3>
+          <button class="btn" id="t-create" type="button">CREATE TOURNAMENT</button>
+        </div>
+        <div class="on-box">
+          <h3>Join a tournament</h3>
+          <div class="on-joinrow">
+            <input id="t-joincode" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE" aria-label="Tournament code">
+            <button class="btn" id="t-join" type="button">JOIN</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- waiting for players -->
+    <div id="t-lobby" hidden>
+      <p class="on-roomline">Tournament code <b id="t-code"></b> <button class="mini" id="t-share" type="button">Share invite link</button></p>
+      <h3>Players <span id="t-count"></span></h3>
+      <ol id="t-players"></ol>
+      <div id="t-invitebox">
+        <h3>Invite friends</h3>
+        <ul id="t-invites" class="friend-list"></ul>
+      </div>
+      <button class="btn" id="t-start" type="button">START TOURNAMENT</button>
+    </div>
+    <!-- the bracket -->
+    <div id="t-bracket" hidden>
+      <div id="t-live" hidden><h4>LIVE NOW · PICK A MATCH TO WATCH</h4><div class="t-live-list"></div></div>
+      <div class="t-cols" id="t-cols"></div>
+    </div>
+    <p id="t-status" role="status"></p>
+    <div class="menu" style="margin-top:8px"><button class="btn" id="t-back" type="button">BACK</button></div>
+  </div>
+</section>
+
+<section class="screen modal" id="screen-account" hidden>
+  <div class="help online account">
+    <!-- signed in: who you are, your friends, and only Back / Switch account / Log out -->
+    <div id="acc-profile" hidden>
+      <h2>ACCOUNT</h2>
+      <p class="on-mycode">Signed in as <b id="acc-me"></b> <button class="mini ghost" id="acc-logout" type="button">Log out</button></p>
+      <p class="acc-switchrow"><button class="mini ghost" id="acc-switch" type="button">Switch account</button></p>
+      <div id="on-friendsbox">
+        <h3>Friends</h3>
+        <div class="on-joinrow">
+          <input id="on-addcode" maxlength="14" placeholder="Friend's username" aria-label="Friend's username">
+          <button class="mini" id="on-add" type="button">Add</button>
+        </div>
+        <div id="fr-reqbox" hidden>
+          <h3>Friend requests</h3>
+          <ul id="fr-requests"></ul>
+        </div>
+        <ul id="on-friends"></ul>
+      </div>
+      <p id="on-guestnote" hidden>Guests can play online with room codes. Log out and create an account to keep a friends list and get invites.</p>
+      <p id="acc-fstatus" role="status"></p>
+      <!-- big and on its own, so it's not mixed up with Log out / Switch account -->
+      <div class="menu" style="margin-top:8px"><button class="btn" id="acc-back" type="button">BACK</button></div>
+    </div>
+    <!-- signed out (or switching): log in, or make a new account -->
+    <div id="acc-signin">
+      <h2 id="acc-title">WHO'S PLAYING?</h2>
+      <div id="acc-saved" class="acc-saved"></div>
+      <div class="acc-tabs" id="acc-tabs" role="tablist">
+        <button class="mini" id="acc-tab-login" type="button" role="tab">Log in</button>
+        <button class="mini ghost" id="acc-tab-create" type="button" role="tab">New account</button>
+      </div>
+      <form id="acc-form" class="acc-form" autocomplete="on">
+        <label for="acc-name">Username</label>
+        <input id="acc-name" maxlength="14" autocomplete="username" placeholder="e.g. Guy">
+        <label for="acc-pin">PIN (4–6 digits)</label>
+        <input id="acc-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="current-password">
+        <button class="btn" id="acc-submit" type="submit">LOG IN</button>
+      </form>
+      <p id="acc-status" role="status"></p>
+      <div class="acc-foot">
+        <button class="mini ghost" id="acc-guest" type="button">Play as guest</button>
+        <button class="mini ghost" id="acc-cancel" type="button" hidden>Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen modal" id="screen-leave" hidden>
+  <h2 class="logo" style="font-size:clamp(32px,7vw,64px)">PAUSE</h2>
+  <p class="hint">The fight keeps running for your opponent until you choose. Forfeit gives them the match and you stay for a rematch; Leave disconnects.</p>
+  <div class="menu">
+    <button class="btn" data-nav="stay">KEEP FIGHTING</button>
+    <button class="btn" data-nav="ff">FORFEIT (FF)</button>
+    <button class="btn" data-nav="leave">LEAVE</button>
+  </div>
+</section>
+
+<div id="invite-toast" role="alertdialog" aria-live="assertive" hidden>
+  <p><b id="inv-from"></b> invites you to <span id="inv-what">an online fight</span></p>
+  <div><button class="mini" id="inv-yes" type="button">Accept</button> <button class="mini ghost" id="inv-no" type="button">Decline</button></div>
+</div>
+<div id="intro-card" hidden><span class="ic-tag"></span><span class="ic-name"></span></div>
+<div id="white-flash"></div>
+<div id="watch-bar" hidden><button id="wb-prev" class="mini" type="button" aria-label="Previous match">◀</button><span id="wb-name"></span><button id="wb-next" class="mini" type="button" aria-label="Next match">▶</button><button id="wb-exit" class="mini" type="button" aria-label="Back to the bracket">✕</button></div>
+<div id="net-wait" hidden>Waiting for opponent…</div>
+
+<section class="screen modal settings" id="screen-controls" hidden>
+  <div class="help set-panel">
+    <h2>SETTINGS</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab" data-tab="controls">CONTROLS</button>
+      <button class="tab" data-tab="graphics">GRAPHICS</button>
+      <button class="tab" data-tab="audio">AUDIO</button>
+    </div>
+    <div class="ctl-wrap"><table class="ctl">
+      <thead><tr><th></th><th>Player 1</th><th>Player 2</th><th>Controller</th></tr></thead>
+      <tbody id="ctl-body"></tbody>
+    </table></div>
+    <p id="ctl-hint"></p>
+    <div class="ctl-foot">
+      <button class="btn" data-ctl="touch">EDIT PHONE BUTTONS</button>
+      <button class="btn" data-ctl="reset">RESET ALL</button>
+      <button class="btn" data-ctl="done">DONE</button>
+    </div>
+    <div class="ctl-ask" id="ctl-ask" hidden>
+      <div class="ctl-ask-box">
+        <p>Reset all controls to the default keys and buttons?</p>
+        <div class="ctl-ask-btns"><button class="btn" data-ask="reset">RESET</button><button class="btn" data-ask="cancel">CANCEL</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="touch" hidden>
+  <button class="tb" data-action="up" aria-label="Jump">▲</button>
+  <button class="tb" data-action="left" aria-label="Left">◀</button>
+  <button class="tb" data-action="down" aria-label="Block">BLOCK</button>
+  <button class="tb" data-action="right" aria-label="Right">▶</button>
+  <button class="tb" data-action="special">SPECIAL</button>
+  <button class="tb" data-action="punch">PUNCH</button>
+  <button class="tb" data-action="kick">KICK</button>
+</section>
+<!-- phone button layout editor (Controls → EDIT PHONE BUTTONS) -->
+<div id="touch-edit" hidden>
+  <div class="te-row">
+    <button class="btn" data-te="reset" type="button">RESET</button>
+    <button class="btn" data-te="save" type="button">SAVE</button>
+    <button class="btn" data-te="cancel" type="button">CANCEL</button>
+  </div>
+  <label class="te-size">SIZE <input id="te-size" type="range" min="40" max="120" step="1"><span id="te-pct">100%</span></label>
+  <button class="btn te-group" data-te="group" type="button">MOVEMENT PAD: <span id="te-group-val">SEPARATE</span></button>
+  <p>Drag a button to move it. Tap one, then use the slider to change its size. Set MOVEMENT PAD to TOGETHER to move and resize its four arrows as one.</p>
+</div>
+
+<button class="acct-badge" id="acct-badge" type="button" hidden></button>
+<div class="corner">
+  <div id="fps" hidden></div>
+  <button id="btn-fatality" aria-label="See your fatality on the dummy" hidden>☠ FATALITY</button>
+  <button id="btn-pause" aria-label="Pause" hidden>❚❚</button>
+  <button id="btn-install" aria-label="Install the game as an app" title="Install as an app (opens full screen)" hidden>⤓</button>
+  <button id="btn-full" aria-label="Full screen">⛶</button>
+  <button id="btn-reload" aria-label="Refresh the game" title="Refresh" hidden>⟳</button>
+</div>
+<div id="fs-tip" class="screen modal" hidden>
+  <div class="help fs-tip">
+    <h2>FULL SCREEN ON IPHONE</h2>
+    <p>iPhone doesn't let websites go full screen. Add the game to your Home Screen instead and it opens full screen, like an app:</p>
+    <ol>
+      <li>Tap <b>Share</b> <span class="ios-share" aria-hidden="true">⬆</span> in Safari (at the bottom, or under ⋯).</li>
+      <li>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+      <li>Open <b>Creative Kombat</b> from your Home Screen.</li>
+    </ol>
+    <button class="btn" id="fs-tip-ok">GOT IT</button>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

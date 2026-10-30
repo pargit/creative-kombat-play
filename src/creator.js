@@ -1,0 +1,662 @@
+// CREATE: the player's own fighters (their 3D model or a stick figure in their colours, their height,
+// their special from the special builder), their own arenas, and the tutorials. Everything is kept
+// on this device (store.js). main.js hands over what it needs: initCreator({ ... }).
+
+import * as THREE from 'three';
+import { createRig } from './rig.js';
+import { listItems, saveItem, deleteItem, newId } from './store.js';
+import { STEPS, ON_HIT, SHAPES, SOUNDS, MAX_DAMAGE, MAX_STEPS, blankStep, blankSpecial, tweakSpecial, normalizeSpecial, describeSpecial, testSpecial } from './custom.js';
+import { GROUNDS, SKIES, WEATHER, PROPS, PRESET_ARENAS, describeArena } from './arenas.js';
+
+// model files: what fits
+export const MODEL_LIMIT_MB = 20;      // the most we take
+export const MODEL_GOOD_MB = 8;        // what runs smoothly on phones
+export const TRI_GOOD = 100000;        // triangles: more than this can lag on phones
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mb = (bytes) => (bytes / 1048576).toFixed(1);
+
+let api = null;
+const blobUrls = new Map(); // fighter id → its model's blob: URL (and 'id/prop' → a special's own model)
+const PROP_LIMIT_MB = 8;     // a model for a special (a beast, a giant foot...): smaller than a fighter
+
+// ── loading what's saved, into the game ────────────────────────────────────────
+export function fighterDef(rec) {
+  const def = { ...rec.def, id: rec.id, custom: true };
+  if (rec.model) {
+    if (!blobUrls.has(rec.id)) blobUrls.set(rec.id, URL.createObjectURL(new Blob([rec.model], { type: 'application/octet-stream' })));
+    def.model = blobUrls.get(rec.id);
+    def.modelType = rec.modelType;
+    def.autoRig = 'force';
+  }
+  // the special's own models (a beast, a giant foot, a thrown thing...)
+  def.props = {};
+  for (const [pid, p] of Object.entries(rec.props || {})) {
+    const key = `${rec.id}/${pid}`;
+    if (!blobUrls.has(key)) blobUrls.set(key, URL.createObjectURL(new Blob([p.data], { type: 'application/octet-stream' })));
+    def.props[pid] = { url: blobUrls.get(key), type: p.type };
+  }
+  return def;
+}
+export async function loadCustomFighters() { return (await listItems('fighters')).sort((a, b) => a.created - b.created).map(fighterDef); }
+export async function loadCustomArenas() { return (await listItems('arenas')).sort((a, b) => a.created - b.created); }
+export async function allArenas() { return [...PRESET_ARENAS, ...(await loadCustomArenas())]; }
+
+// ── the screens ──────────────────────────────────────────────────────────────────
+const CSS = `
+.cr { max-width: 760px; width: min(760px, 100%); }
+.cr h2 { margin: 0 0 10px; }
+.cr h3 { font-family: var(--display); color: var(--gold); font-weight: 400; font-size: 17px; margin: 18px 0 8px; letter-spacing: .04em; }
+.cr .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.cr label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--dust); flex: 1; min-width: 140px; }
+.cr input[type=text], .cr textarea, .cr select { font: inherit; font-size: 15px; color: #fff; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); border-radius: 4px; padding: 8px 10px; }
+.cr textarea { min-height: 64px; resize: vertical; }
+.cr input[type=range] { width: 100%; }
+.cr input[type=color] { width: 46px; height: 34px; padding: 0; border: 0; background: none; }
+.cr .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cr .chip { font: 600 13px system-ui, sans-serif; padding: 6px 10px; border-radius: 16px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.05); color: #ddd; cursor: pointer; }
+.cr .chip.on { background: var(--gold); color: #1a0f08; border-color: var(--gold); }
+.cr .note { font-size: 13px; color: var(--dust); line-height: 1.45; }
+.cr .warn { color: #ffcf5a; } .cr .bad { color: #ff7a7a; } .cr .good { color: #6be38a; }
+.cr .box { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 6px; padding: 10px 12px; margin: 8px 0; }
+.cr .list { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.cr .list li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(255,255,255,.05); border-radius: 4px; }
+.cr .list li .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cr .preview { width: 100%; height: 240px; border-radius: 6px; background: radial-gradient(#3a2a26, #120a0a); display: block; touch-action: none; }
+.cr .sp-step select { font-weight: 700; }
+.cr .foot { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.cr .foot .btn { flex: 1; min-width: 140px; }
+.cr .tut p, .cr .tut li { font-size: 14px; line-height: 1.5; }
+.cr .tut ol { padding-left: 20px; }
+.cr .tut code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 3px; }
+.cr .mini { font: 600 12px system-ui, sans-serif; }
+.cr .mini.ai { background: linear-gradient(90deg, #7b3cff, #ff4fa8); color: #fff; border: 0; }
+`;
+function screen(id, html) {
+  const s = document.createElement('section');
+  s.className = 'screen modal';
+  s.id = id; s.hidden = true;
+  s.innerHTML = `<div class="help cr">${html}</div>`;
+  document.body.appendChild(s);
+  return s;
+}
+
+export function initCreator(a) {
+  api = a;
+  const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
+  buildHub(); buildFighterList(); buildFighterEdit(); buildArenaList(); buildArenaEdit(); buildTutorials(); buildAiBuy();
+}
+
+// ── the AI designer: the paid option ─────────────────────────────────────────────
+// The free builder (FILL IN + the parts) is always free. The AI DESIGN button sends the words to
+// the server (api/ai.js), which has Claude pick the parts: any language, any way of putting it.
+// One design = one credit; credits come in packs bought in the shop (a few free ones to try).
+const AI = { credits: null, packs: [], from: null };
+const session = () => { try { return JSON.parse(localStorage.getItem('fk-session')); } catch { return null; } };
+async function aiCall(action, data = {}) {
+  if (api.offline?.()) return { ok: false, error: 'The AI designer works on the full online game, not in this preview. FILL IN (free) works everywhere.' };
+  const s = session();
+  if (!s?.token) return { ok: false, error: 'Log in to an online account (ACCOUNT on the title screen) to use the AI designer.' };
+  try {
+    const r = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, token: s.token, ...data }) });
+    const j = await r.json();
+    if (typeof j.credits === 'number') AI.credits = j.credits;
+    if (j.packs) AI.packs = j.packs;
+    showCredits();
+    return j;
+  } catch { return { ok: false, error: 'Could not reach the server. Try again.' }; }
+}
+function showCredits() {
+  for (const el of document.querySelectorAll('.ai-cr')) el.textContent = AI.credits == null ? '' : `${AI.credits} AI design${AI.credits === 1 ? '' : 's'} left`;
+}
+// press AI DESIGN: the result, or the shop if they're out
+async function aiDesign(kind, text, btn, say, extra = {}) {
+  if (!text.trim()) { say('<span class="warn">Describe it first, in your own words (any language).</span>'); return null; }
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'DESIGNING…';
+  const r = await aiCall(kind, { text, ...extra });
+  btn.disabled = false; btn.textContent = label;
+  if (r.ok) return r[kind === 'tweak' ? 'special' : kind];
+  if (r.buy) openBuy();
+  say(`<span class="bad">${esc(r.error || 'It did not work. Try again.')}</span>`);
+  return null;
+}
+function buildAiBuy() {
+  screen('screen-ai-buy', `
+    <h2>✨ AI DESIGNS</h2>
+    <p class="note">The AI designer turns any description, in any language, into a special or an arena: <i>"like Goku's spirit bomb but made of cats"</i>. One design uses one credit. Building it yourself with the parts and FILL IN stays free.</p>
+    <p class="ai-cr good"></p>
+    <ul class="list" id="ai-packs"></ul>
+    <p class="note">Payment is through Lemon Squeezy (card, PayPal, Apple Pay, Google Pay). When you've paid, come back and press UPDATE.</p>
+    <div class="foot"><button class="btn" id="ai-refresh">UPDATE</button><button class="btn" id="ai-back">BACK</button></div>`);
+  $('#ai-refresh').onclick = async () => { await aiCall('credits'); renderPacks(); };
+  $('#ai-back').onclick = () => api.show(AI.from || 'screen-create');
+  $('#ai-packs').onclick = (e) => { const u = e.target.dataset.url; if (u) window.open(u, '_blank', 'noopener'); };
+}
+function renderPacks() {
+  $('#ai-packs').innerHTML = AI.packs.length
+    ? AI.packs.map((p) => `<li><span class="nm"><b>${p.designs} AI designs</b><br><span class="note">${esc(p.price)}</span></span><button class="mini" data-url="${esc(p.url)}">BUY</button></li>`).join('')
+    : '<li class="note">The shop isn\'t open yet.</li>';
+}
+async function openBuy() {
+  AI.from = [...document.querySelectorAll('section.screen')].find((x) => !x.hidden && x.id !== 'screen-ai-buy')?.id || 'screen-create';
+  renderPacks(); showCredits();
+  api.show('screen-ai-buy');
+  const r = await aiCall('credits');
+  if (!r.ok) $('#ai-packs').innerHTML = `<li class="note bad">${esc(r.error)}</li>`; else renderPacks();
+}
+export function openCreate() { api.show('screen-create'); }
+
+function buildHub() {
+  const s = screen('screen-create', `
+    <h2>CREATE</h2>
+    <p class="note">Make your own fighters (your own 3D models and specials) and your own arenas. Everything you make shows up in the fighter select and the arena list.</p>
+    <div class="menu" style="margin-top:14px">
+      <button class="btn" data-go="fighters">MY FIGHTERS</button>
+      <button class="btn" data-go="arenas">MY ARENAS</button>
+      <button class="btn" data-go="tutorials">TUTORIALS</button>
+      <button class="btn" data-go="back">BACK</button>
+    </div>`);
+  s.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-go]')?.dataset.go;
+    if (g === 'fighters') openFighters();
+    if (g === 'arenas') openArenas();
+    if (g === 'tutorials') openTutorials('models');
+    if (g === 'back') api.backToTitle();
+  });
+}
+
+// ── fighters ─────────────────────────────────────────────────────────────────────
+function buildFighterList() {
+  screen('screen-fighters', `
+    <h2>MY FIGHTERS</h2>
+    <ul class="list" id="cr-flist"></ul>
+    <div class="foot"><button class="btn" id="cr-fnew">+ NEW FIGHTER</button><button class="btn" id="cr-fback">BACK</button></div>`);
+  $('#cr-fnew').onclick = () => editFighter(null);
+  $('#cr-fback').onclick = () => openCreate();
+}
+async function openFighters() {
+  const ul = $('#cr-flist'), recs = (await listItems('fighters')).sort((a, b) => a.created - b.created);
+  ul.innerHTML = recs.length ? '' : '<li class="note">No fighters yet. Make your first one!</li>';
+  for (const r of recs) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="nm"><b>${esc(r.def.name)}</b><br><span class="note">${r.model ? `3D model, ${mb(r.model.byteLength)} MB` : 'Stick figure'} · ${esc(r.def.special.name)}</span></span>
+      <button class="mini" data-a="try">TRY</button><button class="mini" data-a="edit">EDIT</button><button class="mini ghost" data-a="del">DELETE</button>`;
+    li.onclick = async (e) => {
+      const act = e.target.dataset.a;
+      if (act === 'edit') editFighter(r);
+      if (act === 'try') api.practice(fighterDef(r));
+      if (act === 'del' && confirm(`Delete ${r.def.name}?`)) { await deleteItem('fighters', r.id); URL.revokeObjectURL(blobUrls.get(r.id)); blobUrls.delete(r.id); await api.fightersChanged(); openFighters(); }
+    };
+    ul.appendChild(li);
+  }
+  api.show('screen-fighters');
+}
+
+const FE = { rec: null, model: null, modelType: null, special: null, tested: null, preview: null, props: {}, undo: [] };
+function buildFighterEdit() {
+  screen('screen-fighter-edit', `
+    <h2 id="fe-title">NEW FIGHTER</h2>
+    <div class="row"><label class="f">Name<input type="text" id="fe-name" maxlength="18" placeholder="e.g. CAPTAIN NOODLE"></label>
+      <label class="f">Line under the name<input type="text" id="fe-tag" maxlength="40" placeholder="optional"></label></div>
+
+    <h3>1. THE LOOK</h3>
+    <div class="box">
+      <div class="row"><button class="btn" id="fe-upload" style="flex:1">UPLOAD A 3D MODEL</button><button class="mini ghost" id="fe-nomodel">USE A STICK FIGURE</button>
+        <input type="file" id="fe-file" accept=".glb,.gltf,.fbx" hidden></div>
+      <p class="note">A <b>.glb</b> file (or .gltf / .fbx) of a person or creature standing up, facing you, arms a little out. <b>Up to ${MODEL_LIMIT_MB} MB; under ${MODEL_GOOD_MB} MB runs smoothly on phones.</b> <a href="#" id="fe-howto">How to make one, and how to make it smaller</a></p>
+      <p class="note" id="fe-modelinfo"></p>
+      <canvas class="preview" id="fe-preview"></canvas>
+      <div class="row" id="fe-turnrow"><span class="note">Facing the wrong way?</span><button class="mini" id="fe-turn">TURN 90°</button></div>
+      <div class="row" id="fe-colors"><span class="note">Stick figure colours:</span>
+        <label class="note">Head <input type="color" id="fe-c-skin" value="#f4f4f4"></label>
+        <label class="note">Body <input type="color" id="fe-c-shirt" value="#1b1b1f"></label>
+        <label class="note">Legs <input type="color" id="fe-c-pants" value="#1b1b1f"></label></div>
+      <label class="f">Height: <span id="fe-hv">175 cm</span> <span class="note">(taller: longer reach; shorter: faster)</span><input type="range" id="fe-height" min="140" max="210" value="175"></label>
+    </div>
+
+    <h3>2. THE SPECIAL</h3>
+    <div class="box">
+      <label class="f">Describe it in your own words (then press FILL IN)<textarea id="fe-desc" placeholder="e.g. a huge blue fireball that freezes them"></textarea></label>
+      <div class="row"><button class="mini" id="fe-fill">FILL IN FROM MY WORDS (FREE)</button><button class="mini ai" id="fe-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="fe-aibuy">get more</a></div>
+      <p class="note">FILL IN reads English keywords, free. AI DESIGN understands anything, in any language, and picks the parts for you (uses a credit).</p>
+      <div class="row"><span class="note">Or set the parts yourself:</span></div>
+      <div class="row"><label class="f">Special's name<input type="text" id="fe-sname" maxlength="22"></label></div>
+      <div class="note">The steps, one after another (up to ${MAX_STEPS}):</div>
+      <div id="fe-steps"></div>
+      <div class="row"><button class="mini" id="fe-addstep">+ ADD A STEP</button><span class="note">e.g. summon a beast, then a giant stomp, then a blast</span></div>
+      <input type="file" id="fe-stepfile" accept=".glb,.gltf,.fbx" hidden>
+      <div class="note">What the last hit does (up to 3):</div><div class="chips" id="fe-onhit"></div>
+      <div class="row"><label class="f">Damage in all: <span id="fe-dmgv"></span><input type="range" id="fe-dmg" min="1" max="${MAX_DAMAGE}"></label></div>
+      <div class="row"><label class="note">Colour <input type="color" id="fe-scolor"></label><label class="f">Sound<select id="fe-sound"></select></label></div>
+      <div class="row"><button class="chip" id="fe-flash">White flash</button><button class="chip" id="fe-shake">Screen shake</button></div>
+      <div class="row"><button class="btn" id="fe-test" style="flex:1">TEST THE SPECIAL</button><button class="btn" id="fe-try" style="flex:1">▶ TRY IT NOW</button></div>
+      <div id="fe-report" class="note"></div>
+      <div class="box" style="margin-top:10px">
+        <label class="f">Not quite right? Say what to change<textarea id="fe-tweak" placeholder="e.g. the tiger is too slow, make it bigger and bite 3 times, freeze instead of knock down, add a cage at the end"></textarea></label>
+        <div class="row"><button class="mini" id="fe-tw">CHANGE IT (FREE)</button><button class="mini ai" id="fe-aitw">✨ AI CHANGE</button><button class="mini ghost" id="fe-undo" disabled>↶ UNDO</button><span class="note ai-cr"></span></div>
+        <p class="note">Try it, say what's wrong, change it, try again, until it's perfect. UNDO goes back a change.</p>
+      </div>
+    </div>
+    <p class="note bad" id="fe-err"></p>
+    <div class="foot"><button class="btn" id="fe-save">SAVE</button><button class="btn" id="fe-cancel">CANCEL</button></div>`);
+  const sel = (id, obj) => { $(id).innerHTML = Object.entries(obj).map(([k, v]) => `<option value="${k}">${esc(v.label || v)}</option>`).join(''); };
+  sel('#fe-sound', SOUNDS);
+  $('#fe-onhit').innerHTML = Object.entries(ON_HIT).map(([k, v]) => `<button class="chip" data-k="${k}">${esc(v)}</button>`).join('');
+  $('#fe-upload').onclick = () => $('#fe-file').click();
+  $('#fe-file').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) takeModel(f); };
+  $('#fe-nomodel').onclick = () => { FE.model = null; FE.modelType = null; $('#fe-modelinfo').innerHTML = 'A stick figure in your colours.'; refreshPreview(); };
+  $('#fe-turn').onclick = () => { FE.rot = ((FE.rot || 0) + Math.PI / 2) % (Math.PI * 2); refreshPreview(); };
+  $('#fe-howto').onclick = (e) => { e.preventDefault(); openTutorials('size', 'screen-fighter-edit'); };
+  for (const id of ['#fe-c-skin', '#fe-c-shirt', '#fe-c-pants']) $(id).oninput = () => !FE.model && refreshPreview();
+  $('#fe-height').oninput = () => { $('#fe-hv').textContent = `${$('#fe-height').value} cm`; };
+  const changed = () => { FE.tested = null; $('#fe-report').innerHTML = '<span class="warn">Changed: test it again before saving.</span>'; };
+  for (const id of ['#fe-sname', '#fe-dmg', '#fe-scolor', '#fe-sound']) $(id).addEventListener('input', () => { readSpecial(); showSpecial(); changed(); });
+  // the steps: each its own little card (what it is, hits, size, speed, look / your own model)
+  $('#fe-steps').addEventListener('input', (e) => {
+    const card = e.target.closest('[data-i]'); if (!card) return;
+    const st = FE.special.steps[+card.dataset.i], k = e.target.dataset.f;
+    st[k] = k === 'kind' || k === 'shape' ? e.target.value : +e.target.value;
+    if (k === 'kind' && !STEPS[st.kind].model) st.model = null;
+    FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
+  });
+  $('#fe-steps').addEventListener('click', (e) => {
+    const card = e.target.closest('[data-i]'), a = e.target.dataset.a; if (!card || !a) return;
+    const i = +card.dataset.i, steps = FE.special.steps;
+    if (a === 'del' && steps.length > 1) steps.splice(i, 1);
+    if (a === 'up' && i > 0) [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]];
+    if (a === 'model') { FE.stepFor = i; $('#fe-stepfile').click(); return; }
+    if (a === 'nomodel') steps[i].model = null;
+    FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
+  });
+  $('#fe-addstep').onclick = () => { if (FE.special.steps.length >= MAX_STEPS) return; FE.special.steps.push(blankStep('blast')); FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed(); };
+  $('#fe-stepfile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) takeStepModel(f, FE.stepFor); };
+  $('#fe-onhit').onclick = (e) => {
+    const k = e.target.dataset.k; if (!k) return;
+    const on = FE.special.onHit; const i = on.indexOf(k);
+    if (i >= 0) on.splice(i, 1); else on.push(k);
+    FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
+  };
+  for (const [id, k] of [['#fe-flash', 'flash'], ['#fe-shake', 'shake']]) $(id).onclick = () => { FE.special[k] = !FE.special[k]; showSpecial(); changed(); };
+  $('#fe-fill').onclick = () => { const t = $('#fe-desc').value; if (!t.trim()) return; pushUndo(); FE.special = describeSpecial(t); showSpecial(); changed(); $('#fe-report').innerHTML += '<br>Filled in from your words: check the parts, change anything, then test it.'; };
+  $('#fe-ai').onclick = async () => {
+    const sp = await aiDesign('special', $('#fe-desc').value, $('#fe-ai'), (h) => { $('#fe-report').innerHTML = h; });
+    if (!sp) return;
+    pushUndo();
+    const old = FE.special.steps;
+    FE.special = normalizeSpecial({ ...sp, type: 'custom' }).special;
+    // (a model uploaded for a step stays, if that step is still the same kind of part)
+    FE.special.steps.forEach((st, i) => { if (old[i]?.model && old[i].kind === st.kind) st.model = old[i].model; });
+    showSpecial(); changed();
+    $('#fe-report').innerHTML += '<br><span class="good">✨ Designed by the AI:</span> check the parts, change anything, then test it.';
+  };
+  $('#fe-aibuy').onclick = (e) => { e.preventDefault(); openBuy(); };
+  // fixing it until it's perfect: try it in practice and come straight back, change it with words, undo
+  const keepModels = (old) => FE.special.steps.forEach((st, i) => { if (!st.model && old[i]?.model && old[i].kind === st.kind && STEPS[st.kind].model) st.model = old[i].model; });
+  const said = (h) => { $('#fe-report').innerHTML = h; };
+  $('#fe-tw').onclick = () => {
+    readSpecial();
+    const t = $('#fe-tweak').value; if (!t.trim()) return said('<span class="warn">Say what to change first.</span>');
+    const r = tweakSpecial(FE.special, t);
+    if (!r.said.length) return said('<span class="warn">I didn\'t catch what to change. Try words like: bigger, faster, slower, 3 hits, stronger, weaker, freeze instead of knock down, red, add a cage, remove the beam, call it ...</span> Or ✨ AI CHANGE understands anything.');
+    pushUndo(); const old = FE.special.steps; FE.special = r.special; keepModels(old);
+    showSpecial(); changed(); said(`<span class="good">Changed:</span> ${r.said.map(esc).join(' · ')}. <span class="warn">Test it again before saving.</span>`);
+  };
+  $('#fe-aitw').onclick = async () => {
+    readSpecial();
+    const sp = await aiDesign('tweak', $('#fe-tweak').value, $('#fe-aitw'), said, { special: FE.special });
+    if (!sp) return;
+    pushUndo(); const old = FE.special.steps; FE.special = normalizeSpecial({ ...sp, type: 'custom' }).special; keepModels(old);
+    showSpecial(); changed(); said('<span class="good">✨ Changed by the AI.</span> <span class="warn">Test it again before saving.</span>');
+  };
+  $('#fe-undo').onclick = () => { const prev = FE.undo.pop(); if (!prev) return; FE.special = prev; $('#fe-undo').disabled = !FE.undo.length; showSpecial(); changed(); };
+  $('#fe-try').onclick = () => tryNow();
+  $('#fe-test').onclick = () => runTest();
+  $('#fe-save').onclick = () => saveFighter();
+  $('#fe-cancel').onclick = () => { stopPreview(); openFighters(); };
+}
+function readSpecial() {
+  const s = FE.special;
+  s.name = $('#fe-sname').value;
+  s.damage = +$('#fe-dmg').value;
+  s.color = $('#fe-scolor').value; s.sound = $('#fe-sound').value;
+}
+function showSpecial() {
+  const s = FE.special;
+  $('#fe-sname').value = s.name;
+  $('#fe-dmg').value = s.damage; $('#fe-dmgv').textContent = s.damage;
+  $('#fe-scolor').value = s.color; $('#fe-sound').value = s.sound;
+  showSteps();
+  for (const b of $('#fe-onhit').children) b.classList.toggle('on', s.onHit.includes(b.dataset.k));
+  $('#fe-flash').classList.toggle('on', s.flash); $('#fe-shake').classList.toggle('on', s.shake);
+}
+const opts = (obj, v) => Object.entries(obj).map(([k, x]) => `<option value="${k}"${k === v ? ' selected' : ''}>${esc(x.label || x)}</option>`).join('');
+function showSteps() {
+  const steps = FE.special.steps, box = $('#fe-steps');
+  if (box.contains(document.activeElement) && document.activeElement.type === 'range') { // (don't rebuild under a finger mid-drag)
+    for (const card of box.children) { const st = steps[+card.dataset.i]; if (!st) continue; for (const k of ['hits', 'size', 'speed']) card.querySelector(`[data-v=${k}]`).textContent = k === 'hits' ? st.hits : `×${st[k]}`; }
+    return;
+  }
+  box.innerHTML = steps.map((st, i) => {
+    const P = STEPS[st.kind], own = st.model && FE.props[st.model];
+    return `<div class="box sp-step" data-i="${i}">
+      <div class="row"><b class="note">${i + 1}.</b><select data-f="kind" style="flex:1">${opts(STEPS, st.kind)}</select>
+        ${i ? '<button class="mini" data-a="up">▲</button>' : ''}${steps.length > 1 ? '<button class="mini ghost" data-a="del">✕</button>' : ''}</div>
+      <p class="note">${esc(P.help)}</p>
+      <div class="row"><label class="f">Hits: <span data-v="hits">${st.hits}</span><input type="range" data-f="hits" min="1" max="6" value="${st.hits}"></label>
+        <label class="f">Size: <span data-v="size">×${st.size}</span><input type="range" data-f="size" min="0.5" max="2.5" step="0.1" value="${st.size}"></label>
+        <label class="f">Speed: <span data-v="speed">×${st.speed}</span><input type="range" data-f="speed" min="0.5" max="2" step="0.1" value="${st.speed}"></label></div>
+      ${st.kind === 'shot' || st.kind === 'sky' ? `<div class="row"><label class="f">Shape<select data-f="shape">${opts(SHAPES, st.shape)}</select></label></div>` : ''}
+      ${P.model ? `<div class="row"><span class="note">${own ? `Your model: <b>${esc(own.name)}</b> (${mb(own.data.byteLength)} MB)` : `Built-in look${st.kind === 'summon' ? ' (a tiger)' : st.kind === 'stomp' ? ' (a giant boot)' : ''}. Or your own 3D model (up to ${PROP_LIMIT_MB} MB):`}</span>
+        <button class="mini" data-a="model">${own ? 'CHANGE' : 'UPLOAD MODEL'}</button>${own ? '<button class="mini ghost" data-a="nomodel">BUILT-IN</button>' : ''}</div>` : ''}
+    </div>`;
+  }).join('');
+  $('#fe-addstep').disabled = steps.length >= MAX_STEPS;
+}
+async function takeStepModel(file, i) {
+  const st = FE.special.steps[i]; if (!st) return;
+  const ext = (file.name.match(/\.(glb|gltf|fbx)$/i)?.[1] || '').toLowerCase(), size = file.size / 1048576;
+  const say = (h) => { $('#fe-report').innerHTML = h; };
+  if (!ext) return say('<span class="bad">That isn\'t a 3D model file. Use a .glb (best), .gltf or .fbx.</span>');
+  if (size > PROP_LIMIT_MB) return say(`<span class="bad">That model is <b>${size.toFixed(1)} MB</b>: for a special the most is <b>${PROP_LIMIT_MB} MB</b>.</span> ${shrinkTips()}`);
+  const id = st.model && FE.props[st.model] && !FE.special.steps.some((x, j) => j !== i && x.model === st.model) ? st.model : `p${Date.now().toString(36)}`;
+  FE.props[id] = { data: await file.arrayBuffer(), type: ext === 'fbx' ? 'fbx' : 'glb', name: file.name.slice(0, 40) };
+  st.model = id;
+  showSpecial(); FE.tested = null;
+  say(`<span class="good">Model added to step ${i + 1}.</span> <span class="warn">Test it again before saving.</span>`);
+}
+function pushUndo() { FE.undo.push(JSON.parse(JSON.stringify(FE.special))); if (FE.undo.length > 30) FE.undo.shift(); $('#fe-undo').disabled = false; }
+// ▶ TRY IT NOW: straight into practice with it as it is now (saved or not), and back here after
+function tryNow() {
+  readSpecial();
+  const r = testSpecial(FE.special);
+  if (!r.ok) { runTest(); return; }
+  FE.special = r.special; FE.tested = JSON.stringify(r.special); showSpecial();
+  const def = { ...currentDef(), id: `try-${FE.rec?.id || 'new'}`, custom: true, props: {} };
+  const blob = (key, buf) => { FE.urls ||= {}; if (FE.urls[key]?.buf !== buf) { if (FE.urls[key]) URL.revokeObjectURL(FE.urls[key].url); FE.urls[key] = { buf, url: URL.createObjectURL(new Blob([buf])) }; } return FE.urls[key].url; };
+  if (FE.model) Object.assign(def, { model: blob('model', FE.model), modelType: FE.modelType, autoRig: 'force' });
+  for (const st of FE.special.steps) if (st.model && FE.props[st.model]) def.props[st.model] = { url: blob(st.model, FE.props[st.model].data), type: FE.props[st.model].type };
+  stopPreview();
+  api.practice(def, () => { api.show('screen-fighter-edit'); refreshPreview(); $('#fe-report').innerHTML = '<span class="good">Back from trying it.</span> Not right yet? Say what to change below, or change the parts, then ▶ TRY IT NOW again.'; });
+}
+function runTest() {
+  readSpecial();
+  const r = testSpecial(FE.special);
+  FE.special = r.special; showSpecial();
+  FE.tested = r.ok ? JSON.stringify(r.special) : null;
+  $('#fe-report').innerHTML = (r.ok ? '<b class="good">✓ Ready to try!</b> Save it, then TRY it in practice.<br>' : '<b class="bad">✗ Not ready yet:</b><br>')
+    + r.problems.map((p) => `<span class="${r.ok ? 'warn' : 'bad'}">• ${esc(p)}</span>`).join('<br>') + (r.problems.length ? '<br>' : '')
+    + r.lines.map((l) => `• ${esc(l)}`).join('<br>');
+}
+
+async function editFighter(rec) {
+  FE.rec = rec; FE.model = rec?.model || null; FE.modelType = rec?.modelType || null; FE.rot = rec?.def.modelRotationY || 0;
+  FE.special = normalizeSpecial(rec?.def.special || blankSpecial()).special;
+  FE.props = { ...(rec?.props || {}) };
+  FE.undo = []; $('#fe-undo').disabled = true; $('#fe-tweak').value = '';
+  FE.tested = rec ? JSON.stringify(FE.special) : null;
+  $('#fe-title').textContent = rec ? `EDIT ${rec.def.name}` : 'NEW FIGHTER';
+  $('#fe-name').value = rec?.def.name || ''; $('#fe-tag').value = rec?.def.tagline || '';
+  $('#fe-height').value = rec?.def.heightCm || 175; $('#fe-hv').textContent = `${$('#fe-height').value} cm`;
+  const c = rec?.def.colors || {};
+  $('#fe-c-skin').value = c.skin || '#f4f4f4'; $('#fe-c-shirt').value = c.shirt || '#1b1b1f'; $('#fe-c-pants').value = c.pants || '#1b1b1f';
+  $('#fe-desc').value = ''; $('#fe-err').textContent = '';
+  $('#fe-modelinfo').innerHTML = FE.model ? `Your model: ${mb(FE.model.byteLength)} MB` : 'No model yet: upload one, or use a stick figure in your colours.';
+  $('#fe-report').innerHTML = rec ? '<span class="good">✓ Tested</span>' : 'Build the special, then test it.';
+  showSpecial();
+  api.show('screen-fighter-edit');
+  if (session()?.token && !api.offline?.()) aiCall('credits');
+  refreshPreview();
+}
+
+// a model file: is it a size we can take? then into the preview
+async function takeModel(file) {
+  const ext = (file.name.match(/\.(glb|gltf|fbx)$/i)?.[1] || '').toLowerCase();
+  const info = $('#fe-modelinfo');
+  if (!ext) { info.innerHTML = '<span class="bad">That isn\'t a 3D model file. Use a .glb (best), .gltf or .fbx.</span>'; return; }
+  const size = file.size / 1048576;
+  if (size > MODEL_LIMIT_MB) {
+    info.innerHTML = `<span class="bad">This model is <b>${size.toFixed(1)} MB</b>: the most is <b>${MODEL_LIMIT_MB} MB</b> (best under ${MODEL_GOOD_MB} MB).</span> ${shrinkTips()}`;
+    return;
+  }
+  FE.model = await file.arrayBuffer(); FE.modelType = ext === 'fbx' ? 'fbx' : 'glb'; FE.rot = 0;
+  info.innerHTML = `${esc(file.name)}: <b>${size.toFixed(1)} MB</b> ` + (size > MODEL_GOOD_MB
+    ? `<span class="warn">(it'll work, but it may load slowly and lag on phones. Under ${MODEL_GOOD_MB} MB is best.)</span> ${shrinkTips()}`
+    : '<span class="good">✓ a good size</span>') + '<br><span id="fe-tris">Loading it…</span>';
+  refreshPreview();
+}
+function shrinkTips() {
+  return `<br><b>To make it smaller:</b> open <b>gltf.report</b> in your browser, drop the file in, run a compression script (resize textures to 1024 px, compress the mesh) and export, or see <a href="#" onclick="document.dispatchEvent(new CustomEvent('ck-tut',{detail:'size'}));return false">the full guide</a>.`;
+}
+
+// the preview: the fighter, slowly turning
+function stopPreview() { if (FE.preview) { cancelAnimationFrame(FE.preview.raf); FE.preview.rig?.dispose?.(); FE.preview.renderer.dispose(); FE.preview = null; } }
+function currentDef() {
+  const def = {
+    id: FE.rec?.id || 'preview', name: ($('#fe-name').value || 'NEW FIGHTER').toUpperCase(), tagline: $('#fe-tag').value,
+    heightCm: +$('#fe-height').value, build: { height: 1, width: FE.model ? 1 : 0.55, head: 1 },
+    colors: { skin: $('#fe-c-skin').value, hair: $('#fe-c-skin').value, shirt: $('#fe-c-shirt').value, pants: $('#fe-c-pants').value, shoes: $('#fe-c-pants').value },
+    stats: { speed: 1, power: 1, health: 100 }, special: FE.special, winQuote: 'Made it myself.',
+  };
+  if (FE.rot) def.modelRotationY = FE.rot;
+  return def;
+}
+function refreshPreview() {
+  stopPreview();
+  const canvas = $('#fe-preview');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight('#ffffff', '#554433', 1.6));
+  const key = new THREE.DirectionalLight('#ffffff', 2.2); key.position.set(2, 4, 5); scene.add(key);
+  const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+  const def = currentDef();
+  let url = null;
+  if (FE.model) { url = URL.createObjectURL(new Blob([FE.model])); def.model = url; def.modelType = FE.modelType; def.autoRig = 'force'; }
+  const rig = createRig(def);
+  scene.add(rig.object);
+  rig.setFacing?.(1);
+  const p = FE.preview = { renderer, rig, raf: 0 };
+  $('#fe-turnrow').hidden = !FE.model; $('#fe-colors').hidden = !!FE.model;
+  rig.ready?.then(() => {
+    if (FE.preview !== p) return;
+    if (url) URL.revokeObjectURL(url);
+    const tris = countTris(rig.object), el = $('#fe-tris');
+    if (rig.fallback) { $('#fe-modelinfo').innerHTML += '<br><span class="bad">This file couldn\'t be read as a 3D model. Try exporting it again as .glb.</span>'; FE.model = null; return; }
+    if (el) el.innerHTML = tris > TRI_GOOD ? `<span class="warn">${(tris / 1000).toFixed(0)}k triangles: a lot (over ${TRI_GOOD / 1000}k can lag on phones). See how to make it smaller.</span>` : `<span class="good">✓ ${(tris / 1000).toFixed(0)}k triangles</span>. Check it stands up straight and faces you; if not, press TURN.`;
+  });
+  let t = 0, last = performance.now();
+  const loop = (now) => {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt * 60;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.round(w * renderer.getPixelRatio())) { renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+    rig.update?.(dt, 'idle', { t });
+    rig.object.rotation.y = Math.sin(now / 1500) * 0.5;
+    const H = 2.25 * def.heightCm / 175;
+    cam.position.set(0, H * 0.55, H * 2.4); cam.lookAt(0, H * 0.5, 0);
+    renderer.render(scene, cam);
+    p.raf = requestAnimationFrame(loop);
+  };
+  p.raf = requestAnimationFrame(loop);
+}
+function countTris(obj) { let n = 0; obj.traverse((o) => { if (o.isMesh && o.geometry) n += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; }); return n; }
+
+async function saveFighter() {
+  const err = $('#fe-err');
+  readSpecial();
+  const name = $('#fe-name').value.trim();
+  if (!name) { err.textContent = 'Give your fighter a name.'; return; }
+  if (FE.tested !== JSON.stringify(normalizeSpecial(FE.special).special)) { err.textContent = 'Test the special first (TEST THE SPECIAL): it has to be ready before saving.'; return; }
+  const def = currentDef();
+  // keep only the special's models it still uses
+  const used = new Set(FE.special.steps.map((st) => st.model).filter(Boolean)), props = {};
+  for (const id of used) if (FE.props[id]) props[id] = FE.props[id];
+  const rec = { id: FE.rec?.id || newId('fighter'), created: FE.rec?.created || Date.now(), def, model: FE.model, modelType: FE.modelType, props };
+  try { await saveItem('fighters', rec); } catch (e) { err.textContent = `Couldn't save: ${e.message}`; return; }
+  for (const [k, u] of [...blobUrls]) if (k === rec.id || k.startsWith(`${rec.id}/`)) { URL.revokeObjectURL(u); blobUrls.delete(k); }
+  stopPreview();
+  await api.fightersChanged();
+  openFighters();
+}
+
+// ── arenas ───────────────────────────────────────────────────────────────────────
+function buildArenaList() {
+  screen('screen-arenas', `
+    <h2>MY ARENAS</h2>
+    <ul class="list" id="cr-alist"></ul>
+    <div class="foot"><button class="btn" id="cr-anew">+ NEW ARENA</button><button class="btn" id="cr-aback">BACK</button></div>`);
+  $('#cr-anew').onclick = () => editArena(null);
+  $('#cr-aback').onclick = () => { api.previewArena(null); openCreate(); };
+}
+async function openArenas() {
+  const ul = $('#cr-alist'), mine = await loadCustomArenas();
+  ul.innerHTML = '';
+  for (const a of [...PRESET_ARENAS, ...mine]) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="nm"><b>${esc(a.name)}</b>${a.builtIn ? ' <span class="note">(ready-made)</span>' : ''}<br><span class="note">${esc(GROUNDS[a.ground]?.label)} · ${esc(SKIES[a.sky]?.label)} · ${esc(WEATHER[a.weather])}</span></span>
+      <button class="mini" data-a="see">SEE</button>${a.builtIn ? '' : '<button class="mini" data-a="edit">EDIT</button><button class="mini ghost" data-a="del">DELETE</button>'}`;
+    li.onclick = async (e) => {
+      const act = e.target.dataset.a;
+      if (act === 'see') api.previewArena(a);
+      if (act === 'edit') editArena(a);
+      if (act === 'del' && confirm(`Delete ${a.name}?`)) { await deleteItem('arenas', a.id); await api.arenasChanged(); openArenas(); }
+    };
+    ul.appendChild(li);
+  }
+  api.show('screen-arenas');
+}
+const AE = { rec: null, cfg: null };
+function buildArenaEdit() {
+  screen('screen-arena-edit', `
+    <h2 id="ae-title">NEW ARENA</h2>
+    <label class="f">Describe the place (then press BUILD IT)<textarea id="ae-desc" placeholder="e.g. a snowy mountain dojo at night with lanterns"></textarea></label>
+    <div class="row"><button class="mini" id="ae-fill">BUILD IT FROM MY WORDS (FREE)</button><button class="mini ai" id="ae-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="ae-aibuy">get more</a></div>
+    <p class="note" id="ae-aimsg">BUILD IT reads English keywords, free. AI DESIGN understands any place, in any language ("Hogwarts at night", "Tatooine") and uses a credit. Or pick the parts:</p>
+    <div class="row"><label class="f">Name<input type="text" id="ae-name" maxlength="28"></label><label class="f">Ground<select id="ae-ground"></select></label></div>
+    <div class="row"><label class="f">Sky<select id="ae-sky"></select></label><label class="f">Weather<select id="ae-weather"></select></label><label class="note">Colour <input type="color" id="ae-accent"></label></div>
+    <div class="note">Around the arena (up to 5):</div><div class="chips" id="ae-props"></div>
+    <p class="note">The arena shows behind this menu as you change it. Hide the menu to look: <button class="mini" id="ae-peek">LOOK (3 s)</button></p>
+    <p class="note bad" id="ae-err"></p>
+    <div class="foot"><button class="btn" id="ae-save">SAVE</button><button class="btn" id="ae-cancel">CANCEL</button></div>`);
+  const sel = (id, obj) => { $(id).innerHTML = Object.entries(obj).map(([k, v]) => `<option value="${k}">${esc(v.label || v)}</option>`).join(''); };
+  sel('#ae-ground', GROUNDS); sel('#ae-sky', SKIES); sel('#ae-weather', WEATHER);
+  $('#ae-props').innerHTML = Object.entries(PROPS).map(([k, v]) => `<button class="chip" data-k="${k}">${esc(v)}</button>`).join('');
+  const upd = () => { readArena(); api.previewArena(AE.cfg); };
+  for (const id of ['#ae-name', '#ae-ground', '#ae-sky', '#ae-weather', '#ae-accent']) $(id).addEventListener('change', upd);
+  $('#ae-props').onclick = (e) => {
+    const k = e.target.dataset.k; if (!k) return;
+    const p = AE.cfg.props, i = p.indexOf(k);
+    if (i >= 0) p.splice(i, 1); else if (p.length < 5) p.push(k);
+    showArena(); api.previewArena(AE.cfg);
+  };
+  $('#ae-fill').onclick = () => { const t = $('#ae-desc').value; if (!t.trim()) return; const nm = $('#ae-name').value.trim(); AE.cfg = { ...AE.cfg, ...describeArena(t, nm && nm !== 'My Arena' ? nm : undefined) }; showArena(); api.previewArena(AE.cfg); };
+  $('#ae-peek').onclick = () => { const s = $('#screen-arena-edit'); s.style.opacity = '0'; setTimeout(() => { s.style.opacity = ''; }, 3000); };
+  $('#ae-save').onclick = async () => {
+    readArena();
+    if (!AE.cfg.name.trim()) { $('#ae-err').textContent = 'Give it a name.'; return; }
+    try { await saveItem('arenas', AE.cfg); } catch (e) { $('#ae-err').textContent = `Couldn't save: ${e.message}`; return; }
+    await api.arenasChanged(); openArenas();
+  };
+  $('#ae-cancel').onclick = () => { api.previewArena(null); openArenas(); };
+  $('#ae-ai').onclick = async () => {
+    const a = await aiDesign('arena', $('#ae-desc').value, $('#ae-ai'), (h) => { $('#ae-err').innerHTML = h; });
+    if (!a) return;
+    const pick = (v, list, def) => (list[v] ? v : def);
+    AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), ground: pick(a.ground, GROUNDS, AE.cfg.ground), sky: pick(a.sky, SKIES, AE.cfg.sky), weather: pick(a.weather, WEATHER, AE.cfg.weather),
+      props: [...new Set((a.props || []).filter((k) => PROPS[k]))].slice(0, 5), accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent };
+    $('#ae-err').innerHTML = '<span class="good">✨ Designed by the AI:</span> change anything, then SAVE.';
+    showArena(); api.previewArena(AE.cfg);
+  };
+  $('#ae-aibuy').onclick = (e) => { e.preventDefault(); openBuy(); };
+}
+function readArena() {
+  Object.assign(AE.cfg, { name: $('#ae-name').value, ground: $('#ae-ground').value, sky: $('#ae-sky').value, weather: $('#ae-weather').value, accent: $('#ae-accent').value });
+}
+function showArena() {
+  const c = AE.cfg;
+  $('#ae-name').value = c.name; $('#ae-ground').value = c.ground; $('#ae-sky').value = c.sky; $('#ae-weather').value = c.weather; $('#ae-accent').value = c.accent || '#ffb347';
+  for (const b of $('#ae-props').children) b.classList.toggle('on', c.props.includes(b.dataset.k));
+}
+function editArena(rec) {
+  AE.rec = rec;
+  AE.cfg = rec ? { ...rec, props: [...rec.props] } : { id: newId('arena'), created: Date.now(), ...describeArena('', 'My Arena'), props: ['trees', 'rocks'] };
+  $('#ae-title').textContent = rec ? `EDIT ${rec.name}` : 'NEW ARENA';
+  $('#ae-desc').value = ''; $('#ae-err').textContent = '';
+  showArena();
+  api.show('screen-arena-edit');
+  api.previewArena(AE.cfg);
+  if (session()?.token && !api.offline?.()) aiCall('credits');
+}
+
+// ── tutorials ────────────────────────────────────────────────────────────────────
+const TUTS = {
+  models: ['MAKING A 3D MODEL', `
+    <p>Your fighter can be anyone or anything with arms and legs: you, a friend, a cartoon character, a robot. You need a 3D model file, a <b>.glb</b>. The easiest way is a free AI 3D generator: you give it a picture (or words) and it makes the model.</p>
+    <ol>
+      <li>Open an image-to-3D site, for example <b>Tripo</b> (tripo3d.ai), <b>Meshy</b> (meshy.ai) or <b>Hunyuan3D</b>. Most have a free tier.</li>
+      <li>Give it a <b>full-body</b> picture: the whole person from head to feet, <b>standing straight, facing the camera, arms a little away from the body</b> (like an A). Plain background, no one else in the picture.</li>
+      <li>Or type it: <i>"full body cartoon ninja, standing, facing forward, arms slightly out, no base"</i>.</li>
+      <li>Download it as <b>GLB</b>. Pick a lower polygon count and <b>1K (1024)</b> textures if it asks: smaller files, smoother on phones.</li>
+      <li>In CREATE → MY FIGHTERS → NEW FIGHTER, press <b>UPLOAD A 3D MODEL</b>. The game gives it a skeleton by itself, so it can punch, kick and fall over.</li>
+    </ol>
+    <p><b>Tips:</b> the model should have no base or stand under the feet, and nothing big held in the hands. Big-head cartoon styles look great in this game. If it's lying down or facing sideways in the preview, press <b>TURN</b>.</p>`],
+  size: ['MODEL SIZE: HOW BIG, AND MAKING IT SMALLER', `
+    <p><b>The most a model can be is ${MODEL_LIMIT_MB} MB.</b> Under <b>${MODEL_GOOD_MB} MB</b> loads fast and runs smoothly on phones. Also aim for under <b>${TRI_GOOD / 1000}k triangles</b> (the game tells you after you upload).</p>
+    <p>What makes a model big: huge textures (the pictures painted on it, often 4096 px) and too many triangles. To shrink it:</p>
+    <h3>Easiest: gltf.report (in your browser, free)</h3>
+    <ol>
+      <li>Go to <b>gltf.report</b> and drop your .glb onto the page.</li>
+      <li>Open the <b>Script</b> panel, choose one of the example scripts that compresses the model (texture resize / WebP, mesh compression), and run it.</li>
+      <li>Press <b>Export</b> to download the smaller .glb. Textures at 1024 px usually take a 30 MB model under 5 MB.</li>
+    </ol>
+    <h3>When you make it (Tripo, Meshy...)</h3>
+    <p>Choose a lower polygon count (e.g. 30–50k faces) and 1K textures when you download.</p>
+    <h3>In Blender (free)</h3>
+    <ol>
+      <li>Import the model. Select it, add a <b>Decimate</b> modifier, set Ratio to about <b>0.3</b>, apply it.</li>
+      <li>In the Image editor, <b>Image → Resize</b> each texture to 1024 × 1024.</li>
+      <li><b>File → Export → glTF 2.0</b>, format <b>glTF Binary (.glb)</b>, tick <b>Compression</b>.</li>
+    </ol>
+    <h3>On a computer, in one line</h3>
+    <p><code>npx @gltf-transform/cli optimize model.glb small.glb --texture-compress webp --texture-size 1024</code></p>`],
+  specials: ['BUILDING A SPECIAL', `
+    <p>Every fighter has one special a round. You build it from parts. Nothing to code.</p>
+    <ol>
+      <li><b>Describe it</b> in your own words, like a story, for example <i>"summon a giant tiger that pounces on them, then a huge foot stomps them, then explode"</i> or <i>"three fast red fireballs that burn them"</i>, and press <b>FILL IN</b>. Every part of your sentence (split by <i>then</i>) becomes a <b>step</b>, played one after another (up to ${MAX_STEPS}).</li>
+      <li>Then change anything. Each step is one of: <b>a shot</b>, <b>a beam</b>, <b>dash through</b>, <b>teleport behind</b>, <b>from the sky</b>, <b>a blast around you</b>, <b>summon a beast</b>, <b>a giant stomp</b>, <b>a cage</b>, <b>shadow clones</b> or <b>an earthquake</b>, each with its own hits, size and speed. Then <b>what the last hit does</b> (up to 3: knock down, launch, push, pull, daze, freeze, slow, poison, blind), the <b>damage in all</b> (up to ${MAX_DAMAGE}, the same as the strongest built-in specials, so it stays fair), the colour and sound.</li>
+      <li><b>Your own models in a special:</b> a shot, a beast or a giant stomp can be your own 3D model (UPLOAD MODEL on that step, up to ${PROP_LIMIT_MB} MB): your dragon, your shoe, your rubber duck. Free models: Sketchfab (filter "Downloadable"), Poly Pizza, or make one in Blender.</li>
+      <li><b>✨ AI DESIGN</b> (optional, uses a credit): instead of FILL IN, the AI reads your description, in any language and however you say it (<i>"like Naruto's rasengan"</i>, <i>"כדור אש ענק"</i>), and picks the parts for you. New accounts get 3 free to try, then credits come in packs (GET MORE). You can still change everything it picks.</li>
+      <li>Press <b>TEST THE SPECIAL</b>. The game plays it out by itself, close up, mid range and across the arena, and checks it doesn't break, ends, deals the right damage and plays the same every time (so it works online). When it says <b class="good">✓ Ready to try</b>, save, then press <b>TRY</b> to use it in practice.</li>
+    </ol>
+    <p><b>Making it perfect:</b> press <b>▶ TRY IT NOW</b> to use it on the training dummy straight away (pause → BACK TO THE EDITOR brings you back with everything as you left it). Not right? Write what's wrong in <b>Not quite right?</b>, like <i>"the tiger is too slow, bigger, 3 bites, freeze instead of knock down, add a cage at the end"</i>, and press <b>CHANGE IT</b> (free) or <b>✨ AI CHANGE</b> (understands anything). <b>UNDO</b> takes back a change. Try, change, try again, as many times as you like.</p>
+    <p><b>Tips:</b> a <b>blast</b> is strong but short range; a <b>shot</b> or <b>sky strike</b> reaches far but can be walked away from (sky) or arrives slowly (shots). More hits means less damage each. Freeze and daze are strong: they set up your next combo.</p>`],
+  arenas: ['MAKING AN ARENA', `
+    <ol>
+      <li>CREATE → MY ARENAS → NEW ARENA.</li>
+      <li><b>Describe the place</b>, for example <i>"a snowy mountain dojo at night with lanterns"</i> or <i>"neon city rooftop in the rain"</i>, and press <b>BUILD IT</b>. It's built behind the menu as you go.</li>
+      <li>Change the parts: the <b>ground</b>, the <b>sky</b> (day, sunset, night, space...), the <b>weather</b> (rain, snow, embers...), what's <b>around</b> it (trees, buildings, neon, a temple gate... up to 5) and a <b>colour</b>.</li>
+      <li>Press <b>LOOK</b> to hide the menu for a moment, then <b>SAVE</b>. Pick it before a fight on the fighter select screen (the ARENA button).</li>
+    </ol>`],
+  playing: ['PLAYING', `
+    <p>Pick 1 PLAYER (against the computer), 2 PLAYERS (on one screen or with controllers), PRACTICE (a training dummy) or a TOURNAMENT. HOW TO PLAY on the title screen has all the buttons and combos.</p>
+    <p>Finish someone with a special and you get a <b>FATALITY</b>.</p>`],
+};
+function buildTutorials() {
+  screen('screen-tutorials', `
+    <h2>TUTORIALS</h2>
+    <div class="chips" id="tu-tabs">${Object.entries(TUTS).map(([k, [t]]) => `<button class="chip" data-k="${k}">${esc(t.split(':')[0])}</button>`).join('')}</div>
+    <div class="tut" id="tu-body"></div>
+    <div class="foot"><button class="btn" id="tu-back">BACK</button></div>`);
+  $('#tu-tabs').onclick = (e) => { const k = e.target.dataset.k; if (k) showTut(k); };
+  $('#tu-back').onclick = () => { if (TU.from === 'screen-fighter-edit') api.show('screen-fighter-edit'); else openCreate(); };
+  document.addEventListener('ck-tut', (e) => openTutorials(e.detail, 'screen-fighter-edit'));
+}
+const TU = { from: null };
+function showTut(k) {
+  const [title, body] = TUTS[k];
+  $('#tu-body').innerHTML = `<h3>${esc(title)}</h3>${body}`;
+  for (const b of $('#tu-tabs').children) b.classList.toggle('on', b.dataset.k === k);
+}
+export function openTutorials(k = 'models', from = null) { TU.from = from; showTut(k); api.show('screen-tutorials'); }
