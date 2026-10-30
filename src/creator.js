@@ -144,7 +144,7 @@ function buildAiBuy() {
     <p class="note">The AI designer turns any description, in any language, into a special or an arena: <i>"like Goku's spirit bomb but made of cats"</i>. One design uses one credit. Building it yourself with the parts and FILL IN stays free.</p>
     <p class="ai-cr good"></p>
     <ul class="list" id="ai-packs"></ul>
-    <p class="note" id="ai-how">Payment is through Lemon Squeezy (card, PayPal, Apple Pay, Google Pay). When you've paid, come back and press UPDATE.</p>
+    <p class="note" id="ai-how">🔒 Secure checkout by Lemon Squeezy: Visa, Mastercard, PayPal, Apple Pay, Google Pay. The game never sees your card details. When you've paid, come back and press UPDATE.</p>
     <p class="note" id="ai-status" role="status"></p>
     <div class="foot"><button class="btn" id="ai-refresh">UPDATE</button><button class="btn" id="ai-back">BACK</button></div>`);
   $('#ai-refresh').onclick = async () => { await aiCall('credits'); await renderShop(); };
@@ -192,7 +192,7 @@ async function renderPlayPacks(service) {
   const packs = AI.packs.filter((p) => p.sku);
   let details = [];
   try { details = await service.getDetails(packs.map((p) => p.sku)); } catch { /* Play didn't answer: the fallback prices */ }
-  $('#ai-how').textContent = 'Payment is through Google Play. The designs are added to your account right away.';
+  $('#ai-how').textContent = '🔒 Payment through Google Play (Google Pay, card, PayPal where available). The designs are added to your account right away.';
   $('#ai-packs').innerHTML = packs.length
     ? packs.map((p) => `<li><span class="nm"><b>${p.designs} AI designs</b><br><span class="note">${esc(playPrice(details.find((d) => d.itemId === p.sku), p.price))} · Google Play</span></span><button class="mini" data-sku="${esc(p.sku)}">BUY</button></li>`).join('')
     : '<li class="note">The shop isn\'t open yet.</li>';
