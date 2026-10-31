@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { createRig } from './rig.js';
 import { listItems, saveItem, deleteItem, newId } from './store.js';
 import * as cloud from './cloud.js'; // (with an online account they follow the player to any device)
-import { STEPS, ON_HIT, SHAPES, SOUNDS, MAX_DAMAGE, MAX_STEPS, blankStep, blankSpecial, tweakSpecial, normalizeSpecial, describeSpecial, testSpecial } from './custom.js';
+import { STEPS, ON_HIT, SHAPES, SOUNDS, MAX_DAMAGE, MAX_STEPS, blankStep, blankSpecial, tweakSpecial, normalizeSpecial, describeSpecial, understands, testSpecial } from './custom.js';
 import { GROUNDS, SKIES, WEATHER, PROPS, PRESET_ARENAS, describeArena } from './arenas.js';
 
 // model files: what fits
@@ -383,7 +383,7 @@ function buildFighterEdit() {
     FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
   };
   for (const [id, k] of [['#fe-flash', 'flash'], ['#fe-shake', 'shake']]) $(id).onclick = () => { FE.special[k] = !FE.special[k]; showSpecial(); changed(); };
-  $('#fe-fill').onclick = () => { const t = $('#fe-desc').value; if (!t.trim()) return; pushUndo(); FE.special = describeSpecial(t); showSpecial(); changed(); $('#fe-report').innerHTML += '<br>Filled in from your words: check the parts, change anything, then test it.'; };
+  $('#fe-fill').onclick = () => { const t = $('#fe-desc').value; if (!t.trim()) return; if (!understands(t)) { $('#fe-report').innerHTML = "FILL IN didn't recognise any move in those words, so nothing was changed. Use words like <i>fireball, dash, wave, beam, stomp, summon, cage, meteor, explode</i>, or press ✨ AI DESIGN, which understands any description. Or set the parts yourself below."; return; } pushUndo(); FE.special = describeSpecial(t); showSpecial(); changed(); $('#fe-report').innerHTML += '<br>Filled in from your words: check the parts, change anything, then test it.'; };
   $('#fe-ai').onclick = async () => {
     const sp = await aiDesign('special', $('#fe-desc').value, $('#fe-ai'), (h) => { $('#fe-report').innerHTML = h; });
     if (!sp) return;

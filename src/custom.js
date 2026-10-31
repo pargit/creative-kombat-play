@@ -85,7 +85,7 @@ const STEP_KW = [
   [/\b(clone|clones|copies|copy|shadows|army)\b/, 'clones'],
   [/\b(earthquake|quake|crack|ground splits|ground shakes|fissure)\b/, 'quake'],
   [/\b(laser|beam|ray|kamehameha|hadouken)\b/, 'beam'],
-  [/\b(dash|dashes|charge|charges|rush|rushes|tackle|run through|ram|rams)\b/, 'dash'],
+  [/\b(dash|dashes|charge|charges|rush|rushes|tackle|run through|ram|rams|ride|rides|riding|surf|surfs|surfing|wave|waves|tsunami|flood|floods|sweep|sweeps|sweeping|slide|slides|roll|rolls|rolling|tornado|whirlwind|stampede|avalanche|plow|plows)\b/, 'dash'],
   [/\b(teleport|teleports|blink|vanish|vanishes|behind them|shadow step)\b/, 'teleport'],
   [/\b(meteor|comet|from the sky|from above|rain down|airstrike|orbital|satellite|lightning|thunder)\b/, 'sky'],
   [/\b(explosion|explode|explodes|blast|shockwave|bomb|nova|nuke)\b/, 'blast'],
@@ -95,6 +95,7 @@ const LOOK_KW = [
   [/\b(fire|flame|flaming|burn(ing|s)?|inferno|lava)\b/, { color: '#ff6a1a', sound: 'whoosh' }],
   [/\b(ice|frost|freez(e|ing)|frozen|snow)\b/, { color: '#8fd8ff' }],
   [/\b(lightning|thunder|electric|shock)\b/, { color: '#9fd2ff', sound: 'zap', flash: true }],
+  [/\b(water|wave|waves|tsunami|flood|wash|washes|washing|ocean|sea|surf|rain)\b/, { color: '#2f9fff', sound: 'whoosh' }],
   [/\b(poison|toxic|venom|acid|slime)\b/, { color: '#7dff6a' }],
   [/\b(shadow|dark|darkness|void)\b/, { color: '#7a3cc8' }],
   [/\b(holy|light|gold|golden)\b/, { color: '#ffd23f' }],
@@ -104,10 +105,15 @@ const SHAPE_KW = [[/\b(shuriken|ninja star|star)\b/, 'star'], [/\b(blade|saw|dis
 const FX_KW = [
   [/\b(ice|frost|freez(e|es|ing)|frozen)\b/, 'freeze'], [/\b(poison|toxic|venom|acid|sick|burn(s|ing)?)\b/, 'poison'], [/\b(slow|slows|sticky|mud|glue|web)\b/, 'slow'],
   [/\b(blind|blinds|smoke|ink)\b/, 'blind'], [/\b(stun|stuns|daze|dazes|dizzy|stars)\b/, 'daze'], [/\b(knock(s|ed)? (them )?down|knockdown|floor)\b/, 'knockdown'],
-  [/\b(launch|launches|uppercut|into the air|sky high|flying)\b/, 'launch'], [/\b(push|pushes|knockback|blow(s)? (them )?away|send(s)? (them )?flying)\b/, 'push'], [/\b(pull|pulls|grab|grabs|hook|drag|drags|magnet)\b/, 'pull'],
+  [/\b(launch|launches|uppercut|into the air|sky high|flying)\b/, 'launch'], [/\b(push|pushes|wash|washes|washing|sweep|sweeps|sweeping|sweep away|knockback|blow(s)? (them )?away|send(s)? (them )?flying)\b/, 'push'], [/\b(pull|pulls|grab|grabs|hook|drag|drags|magnet)\b/, 'pull'],
 ];
 const SP_COLORS = { red: '#ff3b3b', blue: '#2f7fff', green: '#22c55e', yellow: '#ffd23f', orange: '#ff8a2a', purple: '#9b4dff', pink: '#ff4fa8', cyan: '#2fe0ff', white: '#ffffff', black: '#222222', gold: '#f4c542' };
 const NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, twice: 2 };
+// does any part of the words match something the free builder knows? (if not, FILL IN would only give the default shot)
+export function understands(text) {
+  const t = String(text || '').toLowerCase();
+  return STEP_KW.some(([re]) => re.test(t));
+}
 export function describeSpecial(text) {
   const t = String(text || '').toLowerCase(), s = blankSpecial();
   s.onHit = []; s.steps = [];
@@ -134,7 +140,7 @@ export function describeSpecial(text) {
   if (/\b(strong|powerful|deadly|brutal|devastating)\b/.test(t)) s.damage = 25;
   if (!s.onHit.length) s.onHit = ['knockdown'];
   // a name: the main words (what it is), e.g. "ICE SHARDS", "TIGER STOMP"
-  const skip = /^(a|an|the|that|which|and|with|them|they|it|its|to|of|on|in|at|from|my|your|me|him|her|three|two|four|five|six|one|\d|fast|quick|huge|big|giant|tiny|small|little|very|really|summons?|calls?|freezes?|burns?|knocks?|slows?|stuns?|blinds?|poisons?|launch(es)?|pushes|pulls|hits?|down|times|twice|sky|behind|then|who|runs?|pounces?|comes?|out|up|is|are|throws?|shoots?)$/;
+  const skip = /^(player|rides?|riding|towards?|toward|opponent|enemy|everything|way|washing|washes|a|an|the|that|which|and|with|them|they|it|its|to|of|on|in|at|from|my|your|me|him|her|three|two|four|five|six|one|\d|fast|quick|huge|big|giant|tiny|small|little|very|really|summons?|calls?|freezes?|burns?|knocks?|slows?|stuns?|blinds?|poisons?|launch(es)?|pushes|pulls|hits?|down|times|twice|sky|behind|then|who|runs?|pounces?|comes?|out|up|is|are|throws?|shoots?)$/;
   const words = t.split(/[,.!;]|\bthen\b/)[0].split(/\s+/).filter((w) => w && !skip.test(w) && !SP_COLORS[w]);
   let name = '';
   for (const w of words) { if ((name + ' ' + w).trim().length > 22) break; name = (name + ' ' + w).trim(); if (name.split(' ').length >= 3) break; }
