@@ -159,9 +159,9 @@ export async function login(name, pin) {
 
 // ── Google sign-in (the Google button on the account screen; Google Identity Services) ──
 // known Google account → logged in { ok, name }; new → { ok, needName, claim, suggest }: pick a name
-export async function googleLogin(credential) {
+export async function googleLogin(accessToken) {
   try {
-    const r = await server('google', { credential });
+    const r = await server('google', { accessToken });
     return r.ok && r.token ? startSession(r) : r;
   } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
 }
@@ -174,11 +174,11 @@ export async function claimName(claim, name) {
   } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }
 }
 // logged in: connect a Google account to it (log in with either from then on)
-export async function linkGoogle(credential) {
+export async function linkGoogle(accessToken) {
   const s = read(SESSION, null);
   if (!s?.token) return { ok: false, error: 'Log in first.' };
   try {
-    const r = await server('google', { credential, token: s.token });
+    const r = await server('google', { accessToken, token: s.token });
     if (r.ok) write(SESSION, { ...s, google: true });
     return r;
   } catch { return { ok: false, error: 'Could not reach the account server. Try again.' }; }

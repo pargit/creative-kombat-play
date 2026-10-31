@@ -3218,19 +3218,28 @@ async function setupSignIns() {
   if (!cfg.google) return;
   try {
     await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
-    google.accounts.id.initialize({ client_id: cfg.google, callback: (r) => onGoogle(r.credential), itp_support: true, cancel_on_tap_outside: true });
-    const style = { theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'pill', logo_alignment: 'left', width: 260 };
-    google.accounts.id.renderButton($('#acc-google'), style);
-    google.accounts.id.renderButton($('#acc-google-link'), style);
+    // our own button + Google's account chooser popup, so it always says "Continue with Google" and asks which
+    // account (Google's own button would show the account used last)
+    const tc = google.accounts.oauth2.initTokenClient({
+      client_id: cfg.google, scope: 'openid profile', prompt: 'select_account',
+      callback: (r) => { if (r && r.access_token) onGoogle(r.access_token); },
+      error_callback: () => {}, // popup closed
+    });
+    for (const box of [$('#acc-google'), $('#acc-google-link')]) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'steam-btn google-btn'; b.textContent = 'CONTINUE WITH GOOGLE';
+      b.addEventListener('click', () => { unlockAudio(); tc.requestAccessToken({ prompt: 'select_account' }); });
+      box.appendChild(b);
+    }
     gsiReady = true;
     if (app.screen === 'account') renderAccount();
   } catch { /* Google's script didn't load (blocked?): the PIN login is still there */ }
 }
-async function onGoogle(credential) {
+async function onGoogle(accessToken) {
   unlockAudio();
   if (app.account && !app.account.guest && !accSwitching) { // logged in: connect Google to this account
     setFriendStatus('Connecting Google…');
-    const r = await linkGoogle(credential);
+    const r = await linkGoogle(accessToken);
     if (!r.ok) { setFriendStatus(r.error, true); return; }
     app.account.google = true;
     renderAccount(); // (clears the status line, so the message comes after)
@@ -3238,7 +3247,7 @@ async function onGoogle(credential) {
     return;
   }
   $('#acc-status').textContent = 'Signing in with Google…';
-  const r = await googleLogin(credential);
+  const r = await googleLogin(accessToken);
   if (!r.ok) { $('#acc-status').textContent = r.error; return; }
   if (r.needName) { startClaim(r.claim, 'google', r.suggest); return; } // new: pick the username friends will find them by
   finishLogin(r);
