@@ -26,6 +26,7 @@ export const STEPS = {
   cage: { label: 'Cage', anim: 'throw', help: 'Bars slam down round them: stuck, taking damage' },
   clones: { label: 'Shadow clones', anim: 'gold', help: 'Shadow copies of you appear and rush them, one after another' },
   quake: { label: 'Earthquake', anim: 'slam', help: 'You stomp the ground and a crack runs along the floor to them' },
+  free: { label: 'Freestyle (made by the AI from your words)', anim: 'throw', body: true, help: 'Anything you can describe: the AI composes it from glowing shapes that move exactly as you said' },
 };
 export const ON_HIT = {
   knockdown: 'Knock down', launch: 'Launch into the air', push: 'Push far away', pull: 'Pull to you',
@@ -57,6 +58,8 @@ export function normalizeSpecial(sp) {
     num(o, 'size', 0.5, 2.5, 1, `Step ${i + 1} size`); num(o, 'speed', 0.5, 2, 1, `Step ${i + 1} speed`);
     if (!SHAPES[o.shape]) o.shape = 'orb';
     if (!STEPS[o.kind].model || typeof o.model !== 'string') o.model = null;
+    if (o.kind === 'free') { o.fx = normalizeFx(o.fx); if (!o.fx) { problems.push(`Step ${i + 1}: the freestyle effect was empty: a shot was used.`); o.kind = 'shot'; delete o.fx; } }
+    else delete o.fx;
     return o;
   });
   if (!s.steps.length) { s.steps = [blankStep()]; problems.push('It needs at least one step.'); }
@@ -247,6 +250,59 @@ function ownModel(ctx, owner, id, height, onReady) {
   if (!p?.url) return;
   loadProp(p.url, height, p.type).then(onReady).catch(() => {});
 }
+
+
+// ── freestyle: any effect, composed from simple moving shapes ─────────────────────
+// A freestyle step is a few "layers" (a shape, a colour, how many, where it starts and ends, how it
+// moves, grows and fades) that the AI writes from the player's words. It is only data, played
+// by the frame count like every other step (same on both phones online), and the hits are
+// still the special's own (damage, on-hit effects), so it can look like anything and stay fair.
+export const FX_SHAPES = ['sphere', 'box', 'cone', 'cylinder', 'torus', 'disc', 'crystal', 'spike', 'ring'];
+export const FX_ANCHORS = ['user', 'opponent', 'above_opponent', 'above_user', 'ground_opponent', 'ground_user', 'behind_user', 'far_side'];
+export const FX_PATHS = ['line', 'accel', 'arc', 'wave', 'spiral', 'orbit', 'bounce'];
+export const FX_SPREADS = ['point', 'line', 'column', 'ring', 'cloud'];
+export const FX_FADES = ['none', 'in', 'out', 'inout'];
+const MAX_LAYERS = 12, MAX_ITEMS = 120;
+const fnum = (v, lo, hi, def) => { v = Number(v); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def; };
+const fpick = (v, list, def) => (list.includes(v) ? v : def);
+export function normalizeFx(fx) {
+  if (!fx || typeof fx !== 'object' || !Array.isArray(fx.layers) || !fx.layers.length) return null;
+  const out = { frames: Math.round(fnum(fx.frames, 30, 150, 70)), carry: !!fx.carry, reach: fnum(fx.reach, 3, 16, 9), hitFrom: fnum(fx.hitFrom, 0.05, 0.95, 0.4), hitTo: 0, layers: [] };
+  out.hitTo = fnum(fx.hitTo, out.hitFrom, 0.98, Math.min(0.98, out.hitFrom + 0.2));
+  let items = 0;
+  for (const l of fx.layers.slice(0, MAX_LAYERS)) {
+    if (!l || typeof l !== 'object') continue;
+    const count = Math.round(fnum(l.count, 1, 24, 1));
+    if (items + count > MAX_ITEMS) break;
+    items += count;
+    const start = fnum(l.start, 0, 0.95, 0), end = fnum(l.end, start + 0.05, 1, 1);
+    out.layers.push({
+      shape: fpick(l.shape, FX_SHAPES, 'sphere'), color: /^#[0-9a-f]{6}$/i.test(l.color) ? l.color : '#ffffff', glow: l.glow !== false, opacity: fnum(l.opacity, 0.1, 1, 0.9),
+      count, spread: fpick(l.spread, FX_SPREADS, 'point'), spreadSize: fnum(l.spreadSize, 0, 8, 1),
+      sx: fnum(l.sx, 0.05, 10, 1), sy: fnum(l.sy, 0.05, 10, 1), sz: fnum(l.sz, 0.05, 10, 1),
+      fromA: fpick(l.fromA, FX_ANCHORS, 'user'), fromDx: fnum(l.fromDx, -20, 20, 0), fromDy: fnum(l.fromDy, -3, 14, 0),
+      toA: fpick(l.toA, FX_ANCHORS, 'opponent'), toDx: fnum(l.toDx, -20, 20, 0), toDy: fnum(l.toDy, -3, 14, 0),
+      path: fpick(l.path, FX_PATHS, 'line'), pathAmp: fnum(l.pathAmp, 0, 8, 1.5),
+      start, end, stagger: fnum(l.stagger, 0, 0.9, 0), grow0: fnum(l.grow0, 0, 6, 1), grow1: fnum(l.grow1, 0, 6, 1), spin: fnum(l.spin, -5, 5, 0),
+      fade: fpick(l.fade, FX_FADES, 'inout'), trail: !!l.trail && count <= 4, offX: fnum(l.offX, -8, 8, 0), offY: fnum(l.offY, -3, 8, 0), offZ: fnum(l.offZ, -2, 2, 0),
+    });
+  }
+  return out.layers.length ? out : null;
+}
+function fxGeometry(shape) {
+  switch (shape) {
+    case 'box': return new THREE.BoxGeometry(1, 1, 1);
+    case 'cone': return new THREE.ConeGeometry(0.5, 1, 14);
+    case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, 14);
+    case 'torus': return new THREE.TorusGeometry(0.45, 0.12, 8, 24);
+    case 'ring': return new THREE.TorusGeometry(0.5, 0.04, 6, 32);
+    case 'disc': return new THREE.CylinderGeometry(0.5, 0.5, 0.06, 24);
+    case 'crystal': return new THREE.OctahedronGeometry(0.5, 0);
+    case 'spike': return new THREE.ConeGeometry(0.25, 1.4, 8);
+    default: return new THREE.SphereGeometry(0.5, 16, 12);
+  }
+}
+const hash01 = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 // ── the steps ────────────────────────────────────────────────────────────────────
 // Each: start(), tick(t) → true when done (t: frames since it started), render(time).
@@ -526,7 +582,86 @@ class Quake extends Step {
   }
 }
 Stomp.prototype.end = function () { this.g.visible = false; if (this.squashed) this.opp.rig.object.scale.y = this.sy; };
-const STEP_CLASS = { shot: Shot, beam: Beam, dash: Dash, teleport: Teleport, sky: Sky, blast: Blast, summon: Summon, stomp: Stomp, cage: Cage, clones: Clones, quake: Quake };
+
+class Free extends Step {
+  start() {
+    const fx = this.fx2 = this.st.fx;
+    this.frames = Math.max(20, Math.round(fx.frames / this.st.speed));
+    this.items = [];
+    for (const [li, l] of fx.layers.entries()) {
+      const geo = fxGeometry(l.shape);
+      for (let i = 0; i < l.count; i++) {
+        const mat = l.glow ? new THREE.MeshBasicMaterial({ color: l.color, transparent: true, opacity: l.opacity, blending: THREE.AdditiveBlending, depthWrite: false })
+          : new THREE.MeshStandardMaterial({ color: l.color, roughness: 0.6, emissive: l.color, emissiveIntensity: 0.25, transparent: true, opacity: l.opacity });
+        const m = new THREE.Mesh(geo, mat); m.visible = false; if (!l.glow) m.castShadow = true;
+        this.g.add(m); this.items.push({ m, l, i, li });
+      }
+    }
+    this.fired = 0; this.from = this.o.pos.x; this.to = Math.max(-8.2, Math.min(8.2, this.opp.pos.x - this.d * 1.2));
+    this.fx.ctx.sfx.whoosh?.();
+  }
+  tick(t) {
+    const o = this.o, opp = this.opp, d = this.d, fx = this.fx2, u = t / this.frames;
+    this.t = t; o.vel.x = 0;
+    if (fx.carry) { o.invuln = 2; const k = Math.min(1, Math.max(0, (u - 0.1) / 0.6)); o.pos.x = this.from + (this.to - this.from) * k; }
+    const n = this.st.hits;
+    while (this.fired < n) {
+      const at = Math.round(this.frames * (fx.hitFrom + (fx.hitTo - fx.hitFrom) * (n > 1 ? this.fired / (n - 1) : 0)));
+      if (t < at) break;
+      this.fired++;
+      if (Math.abs(opp.pos.x - o.pos.x) <= fx.reach) this.hit(o.pos.x + d * 0.4); else this.miss(o.pos.x);
+    }
+    if (t === Math.round(this.frames * fx.hitFrom) && this.fx.sp.shake) this.fx.ctx.shake(0.2);
+    if (t > this.frames + 6) { while (this.fired < n) { this.fired++; this.miss(o.pos.x); } return true; }
+    return false;
+  }
+  anchor(a) {
+    const o = this.o, opp = this.opp, d = this.d;
+    switch (a) {
+      case 'opponent': return [opp.pos.x, opp.pos.y + 1.2];
+      case 'above_opponent': return [opp.pos.x, 11];
+      case 'above_user': return [o.pos.x, 11];
+      case 'ground_opponent': return [opp.pos.x, 0.1];
+      case 'ground_user': return [o.pos.x, 0.1];
+      case 'behind_user': return [o.pos.x - d * 3, 1.2];
+      case 'far_side': return [opp.pos.x + d * 6, 1.2];
+      default: return [o.pos.x, o.pos.y + 1.2];
+    }
+  }
+  render(time) {
+    const d = this.d, u = (this.t || 0) / this.frames, size = this.st.size, TAU = Math.PI * 2;
+    for (const it of this.items) {
+      const { m, l, i } = it, n = l.count, dur = l.end - l.start, iStart = l.start + l.stagger * dur * (i / n), iDur = Math.max(0.04, dur * (1 - l.stagger));
+      const k = (u - iStart) / iDur;
+      if (k < 0 || k > 1) { m.visible = false; continue; }
+      const [ax, ay] = this.anchor(l.fromA), [bx, by] = this.anchor(l.toA);
+      const e = l.path === 'accel' ? k * k : k;
+      let x = ax + d * l.fromDx + (bx + d * l.toDx - ax - d * l.fromDx) * e, y = ay + l.fromDy + (by + l.toDy - ay - l.fromDy) * e, z = 0.2 + l.offZ;
+      const f = n > 1 ? i / (n - 1) - 0.5 : 0, a = TAU * i / n;
+      if (l.spread === 'line') x += f * l.spreadSize * 2 * d; else if (l.spread === 'column') y += f * l.spreadSize * 2;
+      else if (l.spread === 'ring') { x += Math.cos(a) * l.spreadSize; y += Math.sin(a) * l.spreadSize * 0.7; }
+      else if (l.spread === 'cloud') { x += (hash01(i + it.li * 31) - 0.5) * l.spreadSize * 2; y += (hash01(i * 7 + it.li * 17 + 3) - 0.5) * l.spreadSize * 1.4; z += (hash01(i * 3 + 5) - 0.5) * 0.8; }
+      const amp = l.pathAmp;
+      if (l.path === 'arc') y += amp * 4 * k * (1 - k);
+      else if (l.path === 'wave') y += amp * Math.sin(k * TAU * 2 + i);
+      else if (l.path === 'spiral') { x += Math.cos(k * 14 + i) * amp * (1 - k) * 0.6; y += Math.sin(k * 14 + i) * amp * (1 - k); }
+      else if (l.path === 'orbit') { x = ax + d * l.fromDx + Math.cos(k * TAU * 2 + a) * amp; y = ay + l.fromDy + Math.sin(k * TAU * 2 + a) * amp; }
+      else if (l.path === 'bounce') y += amp * Math.abs(Math.sin(k * Math.PI * 3));
+      x += d * l.offX; y += l.offY;
+      const fade = l.fade === 'in' ? Math.min(1, k * 4) : l.fade === 'out' ? Math.min(1, (1 - k) * 4) : l.fade === 'inout' ? Math.min(1, k * 5, (1 - k) * 5) : 1;
+      const g = (l.grow0 + (l.grow1 - l.grow0) * k) * size * Math.max(0.02, fade);
+      m.visible = true; m.position.set(x, Math.max(0.02, y), z);
+      m.scale.set(l.sx * g, l.sy * g, l.sz * g);
+      m.material.opacity = l.opacity * fade;
+      if (l.shape === 'spike') m.rotation.set(0, 0, d > 0 ? -Math.PI / 2 : Math.PI / 2);
+      else if (l.shape === 'disc' || l.shape === 'ring') m.rotation.set(Math.PI / 2 * (l.shape === 'disc' ? 1 : 0), 0, l.spin * time * 2);
+      else m.rotation.set(l.spin * time * 1.3, l.spin * time * 2, 0);
+      if (l.trail) this.fx.ctx.particles.burst(x, y, z, { count: 1, color: l.color, speed: 0.02, gravity: 0, life: 14 });
+    }
+  }
+  end() { this.g.visible = false; this.g.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
+}
+const STEP_CLASS = { free: Free, shot: Shot, beam: Beam, dash: Dash, teleport: Teleport, sky: Sky, blast: Blast, summon: Summon, stomp: Stomp, cage: Cage, clones: Clones, quake: Quake };
 
 // ── the special: its steps, one after another ────────────────────────────────────
 class CustomSpecial extends Effect {

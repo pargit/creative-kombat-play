@@ -458,7 +458,7 @@ function showSteps() {
   box.innerHTML = steps.map((st, i) => {
     const P = STEPS[st.kind], own = st.model && FE.props[st.model];
     return `<div class="box sp-step" data-i="${i}">
-      <div class="row"><b class="note">${i + 1}.</b><select data-f="kind" style="flex:1">${opts(STEPS, st.kind)}</select>
+      <div class="row"><b class="note">${i + 1}.</b><select data-f="kind" style="flex:1">${opts(st.kind === 'free' ? STEPS : Object.fromEntries(Object.entries(STEPS).filter(([k]) => k !== 'free')), st.kind)}</select>
         ${i ? '<button class="mini" data-a="up">▲</button>' : ''}${steps.length > 1 ? '<button class="mini ghost" data-a="del">✕</button>' : ''}</div>
       <p class="note">${esc(P.help)}</p>
       <div class="row"><label class="f">Hits: <span data-v="hits">${st.hits}</span><input type="range" data-f="hits" min="1" max="6" value="${st.hits}"></label>
@@ -656,7 +656,7 @@ function buildArenaEdit() {
   screen('screen-arena-edit', `
     <h2 id="ae-title">NEW ARENA</h2>
     <label class="f">Describe the place (then press BUILD IT)<textarea id="ae-desc" placeholder="e.g. a snowy mountain dojo at night with lanterns"></textarea></label>
-    <div class="row"><button class="mini" id="ae-fill">BUILD IT FROM MY WORDS (FREE)</button><button class="mini ai" id="ae-ai">✨ AI DESIGN</button><button class="mini ai" id="ae-aipic">🖼 REALISTIC AI ARENA</button><span class="note ai-cr"></span><a href="#" class="note" id="ae-aibuy">get more</a></div>
+    <div class="row"><button class="mini" id="ae-fill">BUILD IT FROM MY WORDS (FREE)</button><button class="mini ai" id="ae-ai">✨ AI DESIGN</button><button class="mini ai" id="ae-aipic">🖼 REALISTIC AI ARENA (3 designs)</button><span class="note ai-cr"></span><a href="#" class="note" id="ae-aibuy">get more</a></div>
     <p class="note" id="ae-aimsg">FREE: build it from the game's parts (BUILD IT reads English keywords, or pick the parts yourself). PAID (a credit): AI DESIGN picks the parts for any place, in any language, and 🖼 REALISTIC AI ARENA paints a realistic picture of it like a photo ("Hogwarts at night", "Tatooine").</p>
     <div class="row"><label class="f">Name<input type="text" id="ae-name" maxlength="28"></label><label class="f">Ground<select id="ae-ground"></select></label></div>
     <div class="row"><label class="f">Sky<select id="ae-sky"></select></label><label class="f">Weather<select id="ae-weather"></select></label><label class="note">Colour <input type="color" id="ae-accent"></label></div>
@@ -677,7 +677,7 @@ function buildArenaEdit() {
     showArena(); api.previewArena(AE.cfg);
   };
   $('#ae-fill').onclick = () => { const t = $('#ae-desc').value; if (!t.trim()) return; const nm = $('#ae-name').value.trim(); AE.cfg = { ...AE.cfg, ...describeArena(t, nm && nm !== 'My Arena' ? nm : undefined) }; showArena(); api.previewArena(AE.cfg); };
-  $('#ae-nopic').onclick = () => { delete AE.cfg.backdrop; showArena(); api.previewArena(AE.cfg); };
+  $('#ae-nopic').onclick = () => { delete AE.cfg.backdrop; delete AE.cfg.floor; showArena(); api.previewArena(AE.cfg); };
   $('#ae-peek').onclick = () => { const s = $('#screen-arena-edit'); s.style.opacity = '0'; setTimeout(() => { s.style.opacity = ''; }, 3000); };
   $('#ae-save').onclick = async () => {
     readArena();
@@ -700,10 +700,10 @@ function buildArenaEdit() {
   // the realistic arena: the AI paints a picture of the place (the parts Claude picks stay as the fallback look)
   $('#ae-aipic').onclick = async () => {
     readArena();
-    $('#ae-err').innerHTML = 'Painting your arena… this takes about half a minute.';
+    $('#ae-err').innerHTML = 'Painting your arena (a background and a floor)… this takes about a minute.';
     const a = await aiDesign('arena', $('#ae-desc').value, $('#ae-aipic'), (h) => { $('#ae-err').innerHTML = h; }, { realistic: true, arenaId: AE.cfg.id });
     if (!a) return;
-    AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), backdrop: a.backdrop?.url ? { url: a.backdrop.url } : AE.cfg.backdrop,
+    AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), backdrop: a.backdrop?.url ? { url: a.backdrop.url } : AE.cfg.backdrop, floor: a.floor?.url ? { url: a.floor.url } : AE.cfg.floor,
       ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather, accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent };
     $('#ae-err').innerHTML = '<span class="good">🖼 Painted by the AI:</span> SAVE to keep it.';
     showArena(); api.previewArena(AE.cfg);

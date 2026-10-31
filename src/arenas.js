@@ -150,7 +150,7 @@ export class CustomArena {
     scene.background = new THREE.Color(S.horizon);
     scene.fog = new THREE.Fog(S.horizon, 20, 60);
     this.group.add(skyDome(S));
-    if (cfg.backdrop?.url) this.addBackdrop(cfg.backdrop.url); // (the AI-painted picture of the place, behind the fight)
+    if (cfg.backdrop?.url) this.addBackdrop(cfg.backdrop.url); // (the AI-painted background of the place, behind the fight)
     // lights
     this.group.add(new THREE.HemisphereLight(S.top === '#000000' ? '#8aa0ff' : S.horizon, '#6b5a48', 1.15 * S.light + 0.2));
     const sun = new THREE.DirectionalLight(S.sun, 2.6 * S.light);
@@ -165,6 +165,8 @@ export class CustomArena {
     const G = GROUNDS[cfg.ground] || GROUNDS.concrete;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 60), new THREE.MeshStandardMaterial({ map: gt, roughness: G.ice ? 0.15 : G.lava ? 0.9 : 0.85, metalness: cfg.ground === 'metal' ? 0.5 : 0, emissive: G.lava ? '#ff4a10' : '#000', emissiveIntensity: G.lava ? 0.05 : 0 }));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; this.group.add(ground);
+    if (cfg.backdrop?.url) { ground.geometry.dispose(); ground.geometry = new THREE.PlaneGeometry(200, 140); ground.position.z = -35; } // (the floor runs all the way to the painted background)
+    if (cfg.floor?.url) this.addFloor(cfg.floor.url, ground);
     const ring = new THREE.Mesh(new THREE.RingGeometry(8.6, 8.85, 64), new THREE.MeshBasicMaterial({ color: cfg.accent || '#ffb347', transparent: true, opacity: 0.55, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.scale.set(1, 0.32, 1); ring.position.y = 0.01; this.group.add(ring);
     // sky things
@@ -201,9 +203,28 @@ export class CustomArena {
       if (this.disposed) { tex.dispose(); return; }
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.wrapS = THREE.RepeatWrapping; tex.repeat.x = -1; tex.offset.x = 1; // (seen from inside, so it isn't mirrored)
+      // the picture's bottom edge is where its ground ends: that sits on the arena's floor, and the floor fades into that colour
       const wall = new THREE.Mesh(new THREE.CylinderGeometry(R, R, H, 48, 1, true, Math.PI - arc / 2, arc), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, toneMapped: false }));
-      wall.position.y = 1.5 - H / 2; this.group.add(wall);
+      wall.position.y = H / 2 - 0.15; this.group.add(wall);
+      try {
+        const im = tex.image, c = document.createElement('canvas'); c.width = 32; c.height = 1;
+        const x = c.getContext('2d'); x.drawImage(im, 0, im.height - Math.max(2, Math.round(im.height * 0.03)), im.width, Math.max(2, Math.round(im.height * 0.03)), 0, 0, 32, 1);
+        const px = x.getImageData(0, 0, 32, 1).data; let r = 0, g = 0, b = 0;
+        for (let i = 0; i < 32; i++) { r += px[i * 4]; g += px[i * 4 + 1]; b += px[i * 4 + 2]; }
+        const col = new THREE.Color(`rgb(${Math.round(r / 32)},${Math.round(g / 32)},${Math.round(b / 32)})`);
+        if (this.scene.fog) { this.scene.fog.color.copy(col); this.scene.fog.near = 25; this.scene.fog.far = 62; }
+        this.scene.background = col;
+      } catch { /* (can't read the picture's colours: the sky's own colours stay) */ }
     }, undefined, () => { /* the picture didn't load: the sky and ground are still there */ });
+  }
+  // the AI-painted floor: a seamless tile, repeated over the whole ground
+  addFloor(url, ground) {
+    new THREE.TextureLoader().setCrossOrigin('anonymous').load(url, (tex) => {
+      if (this.disposed) { tex.dispose(); return; }
+      tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.anisotropy = 8;
+      tex.repeat.set(200 / 7, 140 / 7);
+      ground.material.map?.dispose(); ground.material.map = tex; ground.material.color.set('#ffffff'); ground.material.needsUpdate = true;
+    }, undefined, () => {});
   }
   // spots for props: behind the fight (z -4…-30) and off to the sides
   spots(R, n, { near = 4, far = 26, spread = 30 } = {}) {
