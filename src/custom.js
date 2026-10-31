@@ -70,6 +70,7 @@ export function normalizeSpecial(sp) {
   if (!/^#[0-9a-f]{6}$/i.test(s.color)) s.color = '#ff8a2a';
   if (!SOUNDS[s.sound]) s.sound = 'zap';
   s.flash = !!s.flash; s.shake = s.shake !== false;
+  s.mode = s.mode === 'creative' ? 'creative' : 'basic'; s.desc = String(s.desc || '').slice(0, 600);
   delete s.delivery; delete s.hits; delete s.size; delete s.speed; delete s.shape;
   return { special: s, problems };
 }

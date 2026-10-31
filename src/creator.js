@@ -110,7 +110,7 @@ export function initCreator(a) {
 const AI = { credits: null, packs: [], from: null };
 const session = () => { try { return JSON.parse(localStorage.getItem('fk-session')); } catch { return null; } };
 async function aiCall(action, data = {}) {
-  if (api.offline?.()) return { ok: false, error: 'The AI designer works on the full online game, not in this preview. FILL IN (free) works everywhere.' };
+  if (api.offline?.()) return { ok: false, error: 'The AI designer works on the full online game, not in this preview. The Default special design works everywhere.' };
   const s = session();
   if (!s?.token) return { ok: false, error: 'Log in to an online account (ACCOUNT on the title screen) to use the AI designer.' };
   try {
@@ -322,10 +322,18 @@ function buildFighterEdit() {
 
     <h3>2. THE SPECIAL</h3>
     <div class="box">
-      <label class="f">Describe it in your own words (then press FILL IN)<textarea id="fe-desc" placeholder="e.g. a huge blue fireball that freezes them"></textarea></label>
-      <div class="row"><button class="mini" id="fe-fill">FILL IN FROM MY WORDS (FREE)</button><button class="mini ai" id="fe-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="fe-aibuy">get more</a></div>
-      <p class="note">FILL IN reads English keywords, free. AI DESIGN understands anything, in any language, and picks the parts for you (uses a credit).</p>
-      <div class="row"><span class="note">Or set the parts yourself:</span></div>
+      <div class="chips" id="fe-modes">
+        <button class="chip" data-m="basic">1. DEFAULT SPECIAL DESIGN <span class="note">(the basics)</span></button>
+        <button class="chip" data-m="creative">2. CREATIVE SPECIAL DESIGN <span class="note">(follows only the description)</span></button>
+      </div>
+      <p class="note" id="fe-modenote"></p>
+      <div id="fe-creative">
+        <label class="f">Describe your special in your own words (any language)<textarea id="fe-desc" placeholder="e.g. the player rides a wave towards the opponent, washing everything in its way"></textarea></label>
+        <div class="row"><button class="mini ai" id="fe-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="fe-aibuy">get more</a></div>
+        <p class="note">The AI builds the special from your description alone, nothing is pre-selected for you (uses a credit). Then TEST it, and say what to change below.</p>
+        <div id="fe-csum" class="note"></div>
+      </div>
+      <div id="fe-basic">
       <div class="row"><label class="f">Special's name<input type="text" id="fe-sname" maxlength="22"></label></div>
       <div class="note">The steps, one after another (up to ${MAX_STEPS}):</div>
       <div id="fe-steps"></div>
@@ -335,9 +343,10 @@ function buildFighterEdit() {
       <div class="row"><label class="f">Damage in all: <span id="fe-dmgv"></span><input type="range" id="fe-dmg" min="1" max="${MAX_DAMAGE}"></label></div>
       <div class="row"><label class="note">Colour <input type="color" id="fe-scolor"></label><label class="f">Sound<select id="fe-sound"></select></label></div>
       <div class="row"><button class="chip" id="fe-flash">White flash</button><button class="chip" id="fe-shake">Screen shake</button></div>
+      </div>
       <div class="row"><button class="btn" id="fe-test" style="flex:1">TEST THE SPECIAL</button><button class="btn" id="fe-try" style="flex:1">▶ TRY IT NOW</button></div>
       <div id="fe-report" class="note"></div>
-      <div class="box" style="margin-top:10px">
+      <div class="box" id="fe-tweakbox" style="margin-top:10px">
         <label class="f">Not quite right? Say what to change<textarea id="fe-tweak" placeholder="e.g. the tiger is too slow, make it bigger and bite 3 times, freeze instead of knock down, add a cage at the end"></textarea></label>
         <div class="row"><button class="mini" id="fe-tw">CHANGE IT (FREE)</button><button class="mini ai" id="fe-aitw">✨ AI CHANGE</button><button class="mini ghost" id="fe-undo" disabled>↶ UNDO</button><span class="note ai-cr"></span></div>
         <p class="note">Try it, say what's wrong, change it, try again, until it's perfect. UNDO goes back a change.</p>
@@ -383,17 +392,17 @@ function buildFighterEdit() {
     FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
   };
   for (const [id, k] of [['#fe-flash', 'flash'], ['#fe-shake', 'shake']]) $(id).onclick = () => { FE.special[k] = !FE.special[k]; showSpecial(); changed(); };
-  $('#fe-fill').onclick = () => { const t = $('#fe-desc').value; if (!t.trim()) return; if (!understands(t)) { $('#fe-report').innerHTML = "FILL IN didn't recognise any move in those words, so nothing was changed. Use words like <i>fireball, dash, wave, beam, stomp, summon, cage, meteor, explode</i>, or press ✨ AI DESIGN, which understands any description. Or set the parts yourself below."; return; } pushUndo(); FE.special = describeSpecial(t); showSpecial(); changed(); $('#fe-report').innerHTML += '<br>Filled in from your words: check the parts, change anything, then test it.'; };
+  $('#fe-modes').onclick = (e) => { const m = e.target.closest('[data-m]')?.dataset.m; if (!m || m === FE.special.mode) return; FE.special.mode = m; showSpecial(); };
   $('#fe-ai').onclick = async () => {
-    const sp = await aiDesign('special', $('#fe-desc').value, $('#fe-ai'), (h) => { $('#fe-report').innerHTML = h; });
+    const sp = await aiDesign('special', $('#fe-desc').value, $('#fe-ai'), (h) => { $('#fe-report').innerHTML = h; }, { creative: true });
     if (!sp) return;
     pushUndo();
     const old = FE.special.steps;
-    FE.special = normalizeSpecial({ ...sp, type: 'custom' }).special;
+    FE.special = normalizeSpecial({ ...sp, type: 'custom', mode: 'creative', desc: $('#fe-desc').value }).special;
     // (a model uploaded for a step stays, if that step is still the same kind of part)
     FE.special.steps.forEach((st, i) => { if (old[i]?.model && old[i].kind === st.kind) st.model = old[i].model; });
     showSpecial(); changed();
-    $('#fe-report').innerHTML += '<br><span class="good">✨ Designed by the AI:</span> check the parts, change anything, then test it.';
+    $('#fe-report').innerHTML += '<br><span class="good">✨ Designed by the AI from your description:</span> test it, or say what to change below.';
   };
   $('#fe-aibuy').onclick = (e) => { e.preventDefault(); openBuy(); };
   // fixing it until it's perfect: try it in practice and come straight back, change it with words, undo
@@ -409,9 +418,9 @@ function buildFighterEdit() {
   };
   $('#fe-aitw').onclick = async () => {
     readSpecial();
-    const sp = await aiDesign('tweak', $('#fe-tweak').value, $('#fe-aitw'), said, { special: FE.special });
+    const sp = await aiDesign('tweak', $('#fe-tweak').value, $('#fe-aitw'), said, { special: FE.special, creative: FE.special.mode === 'creative' });
     if (!sp) return;
-    pushUndo(); const old = FE.special.steps; FE.special = normalizeSpecial({ ...sp, type: 'custom' }).special; keepModels(old);
+    pushUndo(); const old = FE.special.steps; FE.special = normalizeSpecial({ ...sp, type: 'custom', mode: FE.special.mode, desc: FE.special.desc }).special; keepModels(old);
     showSpecial(); changed(); said('<span class="good">✨ Changed by the AI.</span> <span class="warn">Test it again before saving.</span>');
   };
   $('#fe-undo').onclick = () => { const prev = FE.undo.pop(); if (!prev) return; FE.special = prev; $('#fe-undo').disabled = !FE.undo.length; showSpecial(); changed(); };
@@ -427,7 +436,11 @@ function readSpecial() {
   s.color = $('#fe-scolor').value; s.sound = $('#fe-sound').value;
 }
 function showSpecial() {
-  const s = FE.special;
+  const s = FE.special, creative = s.mode === 'creative';
+  for (const b of $('#fe-modes').children) b.classList.toggle('on', b.dataset.m === (creative ? 'creative' : 'basic'));
+  $('#fe-basic').hidden = creative; $('#fe-creative').hidden = !creative; $('#fe-tweakbox').hidden = !creative;
+  $('#fe-modenote').textContent = creative ? 'Creative: your description is all that counts. No parts to set.' : 'Default: build it from the basic parts yourself (what it is, shape, effect, damage...).';
+  $('#fe-csum').innerHTML = creative ? (s.desc ? `<b>${esc(s.name)}</b>: ${s.steps.map((x) => esc(STEPS[x.kind].label)).join(' → ')} · ${s.onHit.map((k) => esc(ON_HIT[k])).join(', ')} · damage ${s.damage}` : 'Not designed yet: describe it above and press ✨ AI DESIGN.') : '';
   $('#fe-sname').value = s.name;
   $('#fe-dmg').value = s.damage; $('#fe-dmgv').textContent = s.damage;
   $('#fe-scolor').value = s.color; $('#fe-sound').value = s.sound;
@@ -501,6 +514,7 @@ async function editFighter(rec) {
   }
   FE.rec = rec; FE.model = rec?.model || null; FE.modelType = rec?.modelType || null; FE.rot = rec?.def.modelRotationY || 0;
   FE.special = normalizeSpecial(rec?.def.special || blankSpecial()).special;
+  $('#fe-desc').value = FE.special.desc || '';
   FE.props = { ...(rec?.props || {}) };
   FE.undo = []; $('#fe-undo').disabled = true; $('#fe-tweak').value = '';
   FE.tested = rec ? JSON.stringify(FE.special) : null;
@@ -509,7 +523,7 @@ async function editFighter(rec) {
   $('#fe-height').value = rec?.def.heightCm || 175; $('#fe-hv').textContent = `${$('#fe-height').value} cm`;
   const c = rec?.def.colors || {};
   $('#fe-c-skin').value = c.skin || '#f4f4f4'; $('#fe-c-shirt').value = c.shirt || '#1b1b1f'; $('#fe-c-pants').value = c.pants || '#1b1b1f';
-  $('#fe-desc').value = ''; $('#fe-err').textContent = '';
+  $('#fe-err').textContent = '';
   $('#fe-modelinfo').innerHTML = FE.model ? `Your model: ${mb(FE.model.byteLength)} MB` : 'No model yet: upload one, or use a stick figure in your colours.';
   $('#fe-report').innerHTML = rec ? '<span class="good">✓ Tested</span>' : 'Build the special, then test it.';
   showSpecial();
@@ -734,12 +748,12 @@ const TUTS = {
     <h3>On a computer, in one line</h3>
     <p><code>npx @gltf-transform/cli optimize model.glb small.glb --texture-compress webp --texture-size 1024</code></p>`],
   specials: ['BUILDING A SPECIAL', `
-    <p>Every fighter has one special a round. You build it from parts. Nothing to code.</p>
+    <p>Every fighter has one special a round. Nothing to code. Pick one of two ways at the top of THE SPECIAL: <b>1. Default special design</b> (you build it from the basic parts) or <b>2. Creative special design</b> (you only describe it, and the AI builds exactly that).</p>
     <ol>
-      <li><b>Describe it</b> in your own words, like a story, for example <i>"summon a giant tiger that pounces on them, then a huge foot stomps them, then explode"</i> or <i>"three fast red fireballs that burn them"</i>, and press <b>FILL IN</b>. Every part of your sentence (split by <i>then</i>) becomes a <b>step</b>, played one after another (up to ${MAX_STEPS}).</li>
-      <li>Then change anything. Each step is one of: <b>a shot</b>, <b>a beam</b>, <b>dash through</b>, <b>teleport behind</b>, <b>from the sky</b>, <b>a blast around you</b>, <b>summon a beast</b>, <b>a giant stomp</b>, <b>a cage</b>, <b>shadow clones</b> or <b>an earthquake</b>, each with its own hits, size and speed. Then <b>what the last hit does</b> (up to 3: knock down, launch, push, pull, daze, freeze, slow, poison, blind), the <b>damage in all</b> (up to ${MAX_DAMAGE}, the same as the strongest built-in specials, so it stays fair), the colour and sound.</li>
+      <li><b>Default design:</b> build it from steps. For example <i>"summon a giant tiger that pounces on them, then a huge foot stomps them, then explode"</i> or <i>"three fast red fireballs that burn them"</i>. Add steps (up to ${MAX_STEPS}), played one after another.</li>
+      <li>Each step is one of: <b>a shot</b>, <b>a beam</b>, <b>dash through</b>, <b>teleport behind</b>, <b>from the sky</b>, <b>a blast around you</b>, <b>summon a beast</b>, <b>a giant stomp</b>, <b>a cage</b>, <b>shadow clones</b> or <b>an earthquake</b>, each with its own hits, size and speed. Then <b>what the last hit does</b> (up to 3: knock down, launch, push, pull, daze, freeze, slow, poison, blind), the <b>damage in all</b> (up to ${MAX_DAMAGE}, the same as the strongest built-in specials, so it stays fair), the colour and sound.</li>
       <li><b>Your own models in a special:</b> a shot, a beast or a giant stomp can be your own 3D model (UPLOAD MODEL on that step, up to ${PROP_LIMIT_MB} MB): your dragon, your shoe, your rubber duck. Free models: Sketchfab (filter "Downloadable"), Poly Pizza, or make one in Blender.</li>
-      <li><b>✨ AI DESIGN</b> (optional, uses a credit): instead of FILL IN, the AI reads your description, in any language and however you say it (<i>"like Naruto's rasengan"</i>, <i>"כדור אש ענק"</i>), and picks the parts for you. New accounts get 3 free to try, then credits come in packs (GET MORE). You can still change everything it picks.</li>
+      <li><b>Creative design</b> (✨ AI DESIGN, uses a credit): write what you want, in any language and however you say it (<i>"the player rides a wave towards the opponent, washing everything in its way"</i>, <i>"like Naruto's rasengan"</i>, <i>"כדור אש ענק"</i>). Nothing is pre-selected: the special follows only your words. New accounts get 3 free to try, then credits come in packs (GET MORE). Not right yet? Say what to change.</li>
       <li>Press <b>TEST THE SPECIAL</b>. The game plays it out by itself, close up, mid range and across the arena, and checks it doesn't break, ends, deals the right damage and plays the same every time (so it works online). When it says <b class="good">✓ Ready to try</b>, save, then press <b>TRY</b> to use it in practice.</li>
     </ol>
     <p><b>Making it perfect:</b> press <b>▶ TRY IT NOW</b> to use it on the training dummy straight away (pause → BACK TO THE EDITOR brings you back with everything as you left it). Not right? Write what's wrong in <b>Not quite right?</b>, like <i>"the tiger is too slow, bigger, 3 bites, freeze instead of knock down, add a cage at the end"</i>, and press <b>CHANGE IT</b> (free) or <b>✨ AI CHANGE</b> (understands anything). <b>UNDO</b> takes back a change. Try, change, try again, as many times as you like.</p>
