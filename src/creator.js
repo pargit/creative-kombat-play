@@ -329,8 +329,8 @@ function buildFighterEdit() {
       <p class="note" id="fe-modenote"></p>
       <div id="fe-creative">
         <label class="f">Describe your special in your own words (any language)<textarea id="fe-desc" placeholder="e.g. the player rides a wave towards the opponent, washing everything in its way"></textarea></label>
-        <div class="row"><button class="mini ai" id="fe-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="fe-aibuy">get more</a></div>
-        <p class="note">The AI builds the special from your description alone, nothing is pre-selected for you (uses a credit). Then TEST it, and say what to change below (each AI change costs another credit; the keyword CHANGE IT is free).</p>
+        <div class="row"><button class="mini" id="fe-fill">BUILD FROM MY WORDS (FREE, basic)</button><button class="mini ai" id="fe-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="fe-aibuy">get more</a></div>
+        <p class="note">✨ AI DESIGN builds the special from your description alone, in any language, nothing pre-selected (uses a credit; needs the AI to be set up on the server). The free button only understands simple English words (fireball, beam, stomp, wave...) and uses the game's basic parts. Then TEST it, and say what to change below (each AI change costs another credit; the keyword CHANGE IT is free).</p>
         <p class="note warn">Heads up: the AI will not get it 100% perfect every time. Each change you ask the AI for (AI DESIGN again or ✨ AI CHANGE) costs another credit. Test it, and make the changes count: describe the whole thing clearly the first time.</p>
         <div id="fe-csum" class="note"></div>
         <div class="row"><button class="mini" id="fe-cmodel">UPLOAD YOUR OWN 3D MODEL (OPTIONAL)</button><span class="note" id="fe-cmodelinfo"></span></div>
@@ -394,6 +394,12 @@ function buildFighterEdit() {
     FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
   };
   for (const [id, k] of [['#fe-flash', 'flash'], ['#fe-shake', 'shake']]) $(id).onclick = () => { FE.special[k] = !FE.special[k]; showSpecial(); changed(); };
+  $('#fe-fill').onclick = () => {
+    const t = $('#fe-desc').value; if (!t.trim()) { $('#fe-report').innerHTML = '<span class="warn">Describe it first.</span>'; return; }
+    if (!understands(t)) { $('#fe-report').innerHTML = "The free button didn't recognise any move in those words, so nothing was changed. Use words like <i>fireball, dash, wave, beam, stomp, summon, cage, meteor, explode</i>, or press ✨ AI DESIGN, which understands any description."; return; }
+    pushUndo(); const old = FE.special.steps; FE.special = { ...describeSpecial(t), mode: 'creative', desc: t }; keepModels(old);
+    showSpecial(); changed(); $('#fe-report').innerHTML += '<br>Built from your words with the basic parts. Test it, or press ✨ AI DESIGN for the full version.';
+  };
   $('#fe-cmodel').onclick = () => {
     const i = FE.special.steps.findIndex((x) => STEPS[x.kind].model);
     if (i < 0) { $('#fe-report').innerHTML = '<span class="warn">Design the special first (✨ AI DESIGN), then add your model.</span>'; return; }
