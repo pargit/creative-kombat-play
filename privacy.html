@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Creative Kombat · Privacy Policy</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 32px 16px 60px; background: #0f0709; color: #f5ecdf; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 4px; color: #f4c542; }
+  h2 { font-size: 18px; margin: 28px 0 8px; color: #f4c542; }
+  p, li { color: #e8dccb; }
+  .date { color: #b9a893; font-size: 14px; margin-bottom: 24px; }
+  a { color: #ffd166; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  td, th { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.12); }
+  th { color: #f4c542; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Creative Kombat · Privacy Policy</h1>
+  <p class="date">Last updated: 31 October 2026</p>
+
+  <p>Creative Kombat is a fighting game in which players make their own fighters and arenas. This page explains what the game stores about you, why, and who else handles it. The short version: the game keeps what it needs to run your account and your creations, shows no ads, sells no data, and tracks nobody across other sites or apps.</p>
+
+  <h2>Playing without an account</h2>
+  <p>You can play as a guest. Then nothing about you leaves your device except what online play itself needs (see below). Your fighters, arenas and settings stay in your browser's storage on that device.</p>
+
+  <h2>What the game stores when you have an account</h2>
+  <table>
+    <tr><th>What</th><th>Why</th></tr>
+    <tr><td>Your chosen name and tag (for example Guy#7K2P), and a PIN if you chose one (stored only as a salted hash)</td><td>To recognise your account and let friends find you</td></tr>
+    <tr><td>If you sign in with Google: your Google account's unique id. If you sign in with Steam: your Steam id. The game does not receive or store your Google or Steam password, and it does not store your e-mail address</td><td>To let you log in with the same account on any device</td></tr>
+    <tr><td>Your friends list and pending friend requests</td><td>Friends, invites and tournaments</td></tr>
+    <tr><td>Your game settings (controls, graphics, sound)</td><td>So they follow your account</td></tr>
+    <tr><td>Your creations: fighter names, colours, special moves, arenas, and the 3D model files you upload</td><td>So your creations follow your account and can be downloaded on another device. Model files are stored in a file store at addresses that are not listed anywhere; anyone who has such an address can download that file, which is how your opponent sees your fighter</td></tr>
+    <tr><td>Your AI design credits and the ids of purchases</td><td>To add what you bought and never charge twice</td></tr>
+    <tr><td>Session tokens (random strings in your browser's storage)</td><td>To keep you logged in; they expire after 180 days or when you log out</td></tr>
+  </table>
+  <p>Deleting a fighter or arena deletes it and its files from the account. Logging out removes the session from that device.</p>
+
+  <h2>Online play</h2>
+  <p>Online fights connect your device directly to your opponent's device (WebRTC). To set that up, introduction servers see your network address, as with any voice or video call. When a direct connection is impossible, the fight is relayed through a server that forwards the data without storing it. Your name and tag are shown to the players you fight, invite or befriend.</p>
+
+  <h2>The AI designer</h2>
+  <p>When you press AI DESIGN, the description you typed is sent to Anthropic's API to turn it into a special move or an arena. Only that text is sent, not your name or account. Please don't put personal details in those descriptions. Anthropic's handling of API data is described in their own privacy policy.</p>
+
+  <h2>Purchases</h2>
+  <p>Payments are handled entirely by the payment provider: Google Play in the Play Store app, Lemon Squeezy on the website (cards, PayPal, Apple Pay, Google Pay), or Steam in the Steam version. The game never sees your card or payment details; it receives only a confirmation that an order was paid and which pack it was.</p>
+
+  <h2>Who stores the data</h2>
+  <ul>
+    <li>The game's server and account database run on Vercel and Upstash (Redis).</li>
+    <li>Uploaded 3D model files are stored in Vercel Blob.</li>
+    <li>Sign-in is checked with Google (Google Identity Services) or Steam (Steam OpenID); each only tells the game which account signed in.</li>
+    <li>AI designs are generated through Anthropic's API.</li>
+    <li>Payments: Google Play, Lemon Squeezy, or Steam, as above.</li>
+  </ul>
+  <p>The game uses no advertising, no analytics trackers and no third-party cookies. The game's own browser storage is used only to keep you logged in and to keep your settings and creations on your device.</p>
+
+  <h2>Children</h2>
+  <p>The game stores no e-mail address, no real name and no location. Players choose any display name. Buying AI design credits requires a payment account held by an adult (Google Play, Lemon Squeezy or Steam each apply their own age rules).</p>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li>Play as a guest and nothing is stored on the server about you.</li>
+    <li>Delete your creations in the game (CREATE → MY FIGHTERS / MY ARENAS); they are removed from the account and the file store.</li>
+    <li>Remove a friend and the friendship is removed on both sides.</li>
+    <li>To delete your whole account and everything stored with it, contact us (below) with your name and tag.</li>
+  </ul>
+
+  <h2>Changes</h2>
+  <p>If the game starts storing something new, this page is updated first and the date at the top changes.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or deletion requests: <a href="mailto:CONTACT_EMAIL">CONTACT_EMAIL</a></p>
+</main>
+</body>
+</html>
