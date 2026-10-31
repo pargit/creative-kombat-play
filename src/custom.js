@@ -26,7 +26,7 @@ export const STEPS = {
   cage: { label: 'Cage', anim: 'throw', help: 'Bars slam down round them: stuck, taking damage' },
   clones: { label: 'Shadow clones', anim: 'gold', help: 'Shadow copies of you appear and rush them, one after another' },
   quake: { label: 'Earthquake', anim: 'slam', help: 'You stomp the ground and a crack runs along the floor to them' },
-  free: { label: 'Freestyle (made by the AI from your words)', anim: 'throw', body: true, help: 'Anything you can describe: the AI composes it from glowing shapes that move exactly as you said' },
+  free: { label: 'Freestyle (made by the AI from your words)', anim: 'throw', body: true, model: true, help: 'Anything you can describe: the AI composes it from glowing shapes that move exactly as you said' },
 };
 export const ON_HIT = {
   knockdown: 'Knock down', launch: 'Launch into the air', push: 'Push far away', pull: 'Pull to you',
@@ -257,7 +257,7 @@ function ownModel(ctx, owner, id, height, onReady) {
 // moves, grows and fades) that the AI writes from the player's words. It is only data, played
 // by the frame count like every other step (same on both phones online), and the hits are
 // still the special's own (damage, on-hit effects), so it can look like anything and stay fair.
-export const FX_SHAPES = ['sphere', 'box', 'cone', 'cylinder', 'torus', 'disc', 'crystal', 'spike', 'ring'];
+export const FX_SHAPES = ['sphere', 'box', 'cone', 'cylinder', 'torus', 'disc', 'crystal', 'spike', 'ring', 'model']; // (model: the player's own uploaded 3D model)
 export const FX_ANCHORS = ['user', 'opponent', 'above_opponent', 'above_user', 'ground_opponent', 'ground_user', 'behind_user', 'far_side'];
 export const FX_PATHS = ['line', 'accel', 'arc', 'wave', 'spiral', 'orbit', 'bounce'];
 export const FX_SPREADS = ['point', 'line', 'column', 'ring', 'cloud'];
@@ -589,8 +589,14 @@ class Free extends Step {
     this.frames = Math.max(20, Math.round(fx.frames / this.st.speed));
     this.items = [];
     for (const [li, l] of fx.layers.entries()) {
-      const geo = fxGeometry(l.shape);
+      const own = l.shape === 'model' && this.st.model && this.o.def.props?.[this.st.model]?.url;
+      const geo = fxGeometry(own ? 'sphere' : l.shape);
       for (let i = 0; i < l.count; i++) {
+        if (own) { // the player's own 3D model, one per copy, 1 unit tall before the layer's size
+          const grp = new THREE.Group(); grp.visible = false; this.g.add(grp); this.items.push({ m: grp, l, i, li, model: true });
+          ownModel(this.fx.ctx, this.o, this.st.model, 1, (mm) => { grp.add(mm.clone()); });
+          continue;
+        }
         const mat = l.glow ? new THREE.MeshBasicMaterial({ color: l.color, transparent: true, opacity: l.opacity, blending: THREE.AdditiveBlending, depthWrite: false })
           : new THREE.MeshStandardMaterial({ color: l.color, roughness: 0.6, emissive: l.color, emissiveIntensity: 0.25, transparent: true, opacity: l.opacity });
         const m = new THREE.Mesh(geo, mat); m.visible = false; if (!l.glow) m.castShadow = true;
@@ -652,8 +658,9 @@ class Free extends Step {
       const g = (l.grow0 + (l.grow1 - l.grow0) * k) * size * Math.max(0.02, fade);
       m.visible = true; m.position.set(x, Math.max(0.02, y), z);
       m.scale.set(l.sx * g, l.sy * g, l.sz * g);
-      m.material.opacity = l.opacity * fade;
-      if (l.shape === 'spike') m.rotation.set(0, 0, d > 0 ? -Math.PI / 2 : Math.PI / 2);
+      if (m.material) m.material.opacity = l.opacity * fade;
+      if (it.model) m.rotation.set(0, (d > 0 ? Math.PI / 2 : -Math.PI / 2) + l.spin * time * 2, 0);
+      else if (l.shape === 'spike') m.rotation.set(0, 0, d > 0 ? -Math.PI / 2 : Math.PI / 2);
       else if (l.shape === 'disc' || l.shape === 'ring') m.rotation.set(Math.PI / 2 * (l.shape === 'disc' ? 1 : 0), 0, l.spin * time * 2);
       else m.rotation.set(l.spin * time * 1.3, l.spin * time * 2, 0);
       if (l.trail) this.fx.ctx.particles.burst(x, y, z, { count: 1, color: l.color, speed: 0.02, gravity: 0, life: 14 });

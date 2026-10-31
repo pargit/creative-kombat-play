@@ -144,7 +144,7 @@ function buildAiBuy() {
     <p class="note">The AI designer turns any description, in any language, into a special or an arena: <i>"like Goku's spirit bomb but made of cats"</i>. One design uses one credit. Building it yourself with the parts and FILL IN stays free.</p>
     <p class="ai-cr good"></p>
     <ul class="list" id="ai-packs"></ul>
-    <p class="note" id="ai-how">🔒 Secure checkout by Lemon Squeezy: Visa, Mastercard, PayPal, Apple Pay, Google Pay. The game never sees your card details. When you've paid, come back and press UPDATE.</p>
+    <p class="note" id="ai-how">🔒 Secure checkout by Lemon Squeezy: Visa, Mastercard, PayPal, Apple Pay, Google Pay. When you've paid, come back and press UPDATE.</p>
     <p class="note" id="ai-status" role="status"></p>
     <div class="foot"><button class="btn" id="ai-refresh">UPDATE</button><button class="btn" id="ai-back">BACK</button></div>`);
   $('#ai-refresh').onclick = async () => { await aiCall('credits'); await renderShop(); };
@@ -330,8 +330,10 @@ function buildFighterEdit() {
       <div id="fe-creative">
         <label class="f">Describe your special in your own words (any language)<textarea id="fe-desc" placeholder="e.g. the player rides a wave towards the opponent, washing everything in its way"></textarea></label>
         <div class="row"><button class="mini ai" id="fe-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="fe-aibuy">get more</a></div>
-        <p class="note">The AI builds the special from your description alone, nothing is pre-selected for you (uses a credit). Then TEST it, and say what to change below.</p>
+        <p class="note">The AI builds the special from your description alone, nothing is pre-selected for you (uses a credit). Then TEST it, and say what to change below (each AI change costs another credit; the keyword CHANGE IT is free).</p>
+        <p class="note warn">Heads up: the AI will not get it 100% perfect every time. Each change you ask the AI for (AI DESIGN again or ✨ AI CHANGE) costs another credit. Test it, and make the changes count: describe the whole thing clearly the first time.</p>
         <div id="fe-csum" class="note"></div>
+        <div class="row"><button class="mini" id="fe-cmodel">UPLOAD YOUR OWN 3D MODEL (OPTIONAL)</button><span class="note" id="fe-cmodelinfo"></span></div>
       </div>
       <div id="fe-basic">
       <div class="row"><label class="f">Special's name<input type="text" id="fe-sname" maxlength="22"></label></div>
@@ -392,21 +394,29 @@ function buildFighterEdit() {
     FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
   };
   for (const [id, k] of [['#fe-flash', 'flash'], ['#fe-shake', 'shake']]) $(id).onclick = () => { FE.special[k] = !FE.special[k]; showSpecial(); changed(); };
+  $('#fe-cmodel').onclick = () => {
+    const i = FE.special.steps.findIndex((x) => STEPS[x.kind].model);
+    if (i < 0) { $('#fe-report').innerHTML = '<span class="warn">Design the special first (✨ AI DESIGN), then add your model.</span>'; return; }
+    FE.stepFor = i; $('#fe-stepfile').click();
+  };
   $('#fe-modes').onclick = (e) => { const m = e.target.closest('[data-m]')?.dataset.m; if (!m || m === FE.special.mode) return; FE.special.mode = m; showSpecial(); };
   $('#fe-ai').onclick = async () => {
-    const sp = await aiDesign('special', $('#fe-desc').value, $('#fe-ai'), (h) => { $('#fe-report').innerHTML = h; }, { creative: true });
+    const sp = await aiDesign('special', $('#fe-desc').value, $('#fe-ai'), (h) => { $('#fe-report').innerHTML = h; }, { creative: true, hasModel: FE.special.steps.some((x) => x.model && FE.props[x.model]) });
     if (!sp) return;
     pushUndo();
     const old = FE.special.steps;
     FE.special = normalizeSpecial({ ...sp, type: 'custom', mode: 'creative', desc: $('#fe-desc').value }).special;
     // (a model uploaded for a step stays, if that step is still the same kind of part)
     FE.special.steps.forEach((st, i) => { if (old[i]?.model && old[i].kind === st.kind) st.model = old[i].model; });
+    reuseModels(old);
     showSpecial(); changed();
     $('#fe-report').innerHTML += '<br><span class="good">✨ Designed by the AI from your description:</span> test it, or say what to change below.';
   };
   $('#fe-aibuy').onclick = (e) => { e.preventDefault(); openBuy(); };
   // fixing it until it's perfect: try it in practice and come straight back, change it with words, undo
-  const keepModels = (old) => FE.special.steps.forEach((st, i) => { if (!st.model && old[i]?.model && old[i].kind === st.kind && STEPS[st.kind].model) st.model = old[i].model; });
+  const keepModels = (old) => { FE.special.steps.forEach((st, i) => { if (!st.model && old[i]?.model && old[i].kind === st.kind && STEPS[st.kind].model) st.model = old[i].model; }); reuseModels(old); };
+  // (an uploaded model the new design didn't keep in place goes to the first step that can show one)
+  const reuseModels = (old) => { const used = new Set(FE.special.steps.map((x) => x.model)); for (const m of old.map((x) => x.model).filter((x) => x && !used.has(x))) { const st = FE.special.steps.find((x) => !x.model && STEPS[x.kind].model); if (st) st.model = m; } };
   const said = (h) => { $('#fe-report').innerHTML = h; };
   $('#fe-tw').onclick = () => {
     readSpecial();
@@ -418,7 +428,7 @@ function buildFighterEdit() {
   };
   $('#fe-aitw').onclick = async () => {
     readSpecial();
-    const sp = await aiDesign('tweak', $('#fe-tweak').value, $('#fe-aitw'), said, { special: FE.special, creative: FE.special.mode === 'creative' });
+    const sp = await aiDesign('tweak', $('#fe-tweak').value, $('#fe-aitw'), said, { special: FE.special, creative: FE.special.mode === 'creative', hasModel: FE.special.steps.some((x) => x.model && FE.props[x.model]) });
     if (!sp) return;
     pushUndo(); const old = FE.special.steps; FE.special = normalizeSpecial({ ...sp, type: 'custom', mode: FE.special.mode, desc: FE.special.desc }).special; keepModels(old);
     showSpecial(); changed(); said('<span class="good">✨ Changed by the AI.</span> <span class="warn">Test it again before saving.</span>');
@@ -440,6 +450,7 @@ function showSpecial() {
   for (const b of $('#fe-modes').children) b.classList.toggle('on', b.dataset.m === (creative ? 'creative' : 'basic'));
   $('#fe-basic').hidden = creative; $('#fe-creative').hidden = !creative; $('#fe-tweakbox').hidden = !creative;
   $('#fe-modenote').textContent = creative ? 'Creative: your description is all that counts. No parts to set.' : 'Default: build it from the basic parts yourself (what it is, shape, effect, damage...).';
+  { const ms = s.steps.find((x) => x.model && FE.props[x.model]); $('#fe-cmodelinfo').textContent = ms ? `Using: ${FE.props[ms.model].name}. The AI uses it when you design again (say where it should appear).` : 'Your model can appear inside the effect (say so in the description).'; }
   $('#fe-csum').innerHTML = creative ? (s.desc ? `<b>${esc(s.name)}</b>: ${s.steps.map((x) => esc(STEPS[x.kind].label)).join(' → ')} · ${s.onHit.map((k) => esc(ON_HIT[k])).join(', ')} · damage ${s.damage}` : 'Not designed yet: describe it above and press ✨ AI DESIGN.') : '';
   $('#fe-sname').value = s.name;
   $('#fe-dmg').value = s.damage; $('#fe-dmgv').textContent = s.damage;
