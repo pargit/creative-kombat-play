@@ -150,6 +150,7 @@ export class CustomArena {
     scene.background = new THREE.Color(S.horizon);
     scene.fog = new THREE.Fog(S.horizon, 20, 60);
     this.group.add(skyDome(S));
+    if (cfg.backdrop?.url) this.addBackdrop(cfg.backdrop.url); // (the AI-painted picture of the place, behind the fight)
     // lights
     this.group.add(new THREE.HemisphereLight(S.top === '#000000' ? '#8aa0ff' : S.horizon, '#6b5a48', 1.15 * S.light + 0.2));
     const sun = new THREE.DirectionalLight(S.sun, 2.6 * S.light);
@@ -178,7 +179,7 @@ export class CustomArena {
     }
     // the props, round the back and the sides (never in the fight or in front of the camera)
     this.animated = [];
-    for (const p of cfg.props || []) this.addProps(p, R, cfg);
+    if (!cfg.backdrop?.url) for (const p of cfg.props || []) this.addProps(p, R, cfg);
     // weather
     this.weather = null;
     if (['rain', 'snow', 'embers', 'leaves'].includes(cfg.weather)) {
@@ -192,6 +193,17 @@ export class CustomArena {
       this.group.add(pts);
     }
     scene.add(this.group);
+  }
+  // a wide picture on a curved wall behind the arena, its horizon at the fighters' eye level
+  addBackdrop(url) {
+    const R = 55, H = 49, arc = Math.PI * 2 / 3;
+    new THREE.TextureLoader().setCrossOrigin('anonymous').load(url, (tex) => {
+      if (this.disposed) { tex.dispose(); return; }
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping; tex.repeat.x = -1; tex.offset.x = 1; // (seen from inside, so it isn't mirrored)
+      const wall = new THREE.Mesh(new THREE.CylinderGeometry(R, R, H, 48, 1, true, Math.PI - arc / 2, arc), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, toneMapped: false }));
+      wall.position.y = 1.5 - H / 2; this.group.add(wall);
+    }, undefined, () => { /* the picture didn't load: the sky and ground are still there */ });
   }
   // spots for props: behind the fight (z -4…-30) and off to the sides
   spots(R, n, { near = 4, far = 26, spread = 30 } = {}) {
@@ -278,6 +290,7 @@ export class CustomArena {
     p.needsUpdate = true;
   }
   dispose() {
+    this.disposed = true;
     this.scene.remove(this.group);
     this.group.traverse((o) => { o.geometry?.dispose(); for (const m of [].concat(o.material || [])) { m.map?.dispose(); m.dispose(); } });
   }

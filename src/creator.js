@@ -656,11 +656,12 @@ function buildArenaEdit() {
   screen('screen-arena-edit', `
     <h2 id="ae-title">NEW ARENA</h2>
     <label class="f">Describe the place (then press BUILD IT)<textarea id="ae-desc" placeholder="e.g. a snowy mountain dojo at night with lanterns"></textarea></label>
-    <div class="row"><button class="mini" id="ae-fill">BUILD IT FROM MY WORDS (FREE)</button><button class="mini ai" id="ae-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="ae-aibuy">get more</a></div>
-    <p class="note" id="ae-aimsg">BUILD IT reads English keywords, free. AI DESIGN understands any place, in any language ("Hogwarts at night", "Tatooine") and uses a credit. Or pick the parts:</p>
+    <div class="row"><button class="mini" id="ae-fill">BUILD IT FROM MY WORDS (FREE)</button><button class="mini ai" id="ae-ai">✨ AI DESIGN</button><button class="mini ai" id="ae-aipic">🖼 REALISTIC AI ARENA</button><span class="note ai-cr"></span><a href="#" class="note" id="ae-aibuy">get more</a></div>
+    <p class="note" id="ae-aimsg">FREE: build it from the game's parts (BUILD IT reads English keywords, or pick the parts yourself). PAID (a credit): AI DESIGN picks the parts for any place, in any language, and 🖼 REALISTIC AI ARENA paints a realistic picture of it like a photo ("Hogwarts at night", "Tatooine").</p>
     <div class="row"><label class="f">Name<input type="text" id="ae-name" maxlength="28"></label><label class="f">Ground<select id="ae-ground"></select></label></div>
     <div class="row"><label class="f">Sky<select id="ae-sky"></select></label><label class="f">Weather<select id="ae-weather"></select></label><label class="note">Colour <input type="color" id="ae-accent"></label></div>
     <div class="note">Around the arena (up to 5):</div><div class="chips" id="ae-props"></div>
+    <div class="row" id="ae-picrow" hidden><span class="note">This arena has an AI-painted picture behind it.</span><button class="mini ghost" id="ae-nopic">REMOVE PICTURE</button></div>
     <p class="note">The arena shows behind this menu as you change it. Hide the menu to look: <button class="mini" id="ae-peek">LOOK (3 s)</button></p>
     <p class="note bad" id="ae-err"></p>
     <div class="foot"><button class="btn" id="ae-save">SAVE</button><button class="btn" id="ae-cancel">CANCEL</button></div>`);
@@ -676,6 +677,7 @@ function buildArenaEdit() {
     showArena(); api.previewArena(AE.cfg);
   };
   $('#ae-fill').onclick = () => { const t = $('#ae-desc').value; if (!t.trim()) return; const nm = $('#ae-name').value.trim(); AE.cfg = { ...AE.cfg, ...describeArena(t, nm && nm !== 'My Arena' ? nm : undefined) }; showArena(); api.previewArena(AE.cfg); };
+  $('#ae-nopic').onclick = () => { delete AE.cfg.backdrop; showArena(); api.previewArena(AE.cfg); };
   $('#ae-peek').onclick = () => { const s = $('#screen-arena-edit'); s.style.opacity = '0'; setTimeout(() => { s.style.opacity = ''; }, 3000); };
   $('#ae-save').onclick = async () => {
     readArena();
@@ -695,6 +697,17 @@ function buildArenaEdit() {
     $('#ae-err').innerHTML = '<span class="good">✨ Designed by the AI:</span> change anything, then SAVE.';
     showArena(); api.previewArena(AE.cfg);
   };
+  // the realistic arena: the AI paints a picture of the place (the parts Claude picks stay as the fallback look)
+  $('#ae-aipic').onclick = async () => {
+    readArena();
+    $('#ae-err').innerHTML = 'Painting your arena… this takes about half a minute.';
+    const a = await aiDesign('arena', $('#ae-desc').value, $('#ae-aipic'), (h) => { $('#ae-err').innerHTML = h; }, { realistic: true, arenaId: AE.cfg.id });
+    if (!a) return;
+    AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), backdrop: a.backdrop?.url ? { url: a.backdrop.url } : AE.cfg.backdrop,
+      ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather, accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent };
+    $('#ae-err').innerHTML = '<span class="good">🖼 Painted by the AI:</span> SAVE to keep it.';
+    showArena(); api.previewArena(AE.cfg);
+  };
   $('#ae-aibuy').onclick = (e) => { e.preventDefault(); openBuy(); };
 }
 function readArena() {
@@ -704,6 +717,7 @@ function showArena() {
   const c = AE.cfg;
   $('#ae-name').value = c.name; $('#ae-ground').value = c.ground; $('#ae-sky').value = c.sky; $('#ae-weather').value = c.weather; $('#ae-accent').value = c.accent || '#ffb347';
   for (const b of $('#ae-props').children) b.classList.toggle('on', c.props.includes(b.dataset.k));
+  $('#ae-picrow').hidden = !c.backdrop?.url;
 }
 function editArena(rec) {
   AE.rec = rec;
