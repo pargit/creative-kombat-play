@@ -7,7 +7,9 @@ import * as THREE from 'three';
 import { createRig } from './rig.js';
 import { listItems, saveItem, deleteItem, newId } from './store.js';
 import * as cloud from './cloud.js'; // (with an online account they follow the player to any device)
-import { STEPS, ON_HIT, SHAPES, SOUNDS, MAX_DAMAGE, MAX_STEPS, blankStep, blankSpecial, tweakSpecial, normalizeSpecial, describeSpecial, understands, testSpecial } from './custom.js';
+import { STEPS, ON_HIT, SHAPES, SOUNDS, MAX_DAMAGE, autoDamage, modelFx, MAX_STEPS, blankStep, blankSpecial, tweakSpecial, normalizeSpecial, describeSpecial, understands, testSpecial } from './custom.js';
+import { findThing, LIBRARY_LIST } from './library.js';
+const KNOWS = 'animals (horse, tiger, dragon, eagle, dolphin, shark...), people (knight, wizard, ninja, robot, giant...), weapons and things (sword, spear, anvil, rocket, car, tank...) and effects (fireball, beam, wave, tornado, stomp...)';
 import { GROUNDS, SKIES, WEATHER, PROPS, PRESET_ARENAS, describeArena } from './arenas.js';
 
 // model files: what fits
@@ -107,7 +109,7 @@ export function initCreator(a) {
 // The free builder (FILL IN + the parts) is always free. The AI DESIGN button sends the words to
 // the server (api/ai.js), which has Claude pick the parts: any language, any way of putting it.
 // One design = one credit; credits come in packs bought in the shop (a few free ones to try).
-const AI = { credits: null, packs: [], from: null };
+const AI = { credits: null, packs: [], from: null, unavailable: false };
 const session = () => { try { return JSON.parse(localStorage.getItem('fk-session')); } catch { return null; } };
 async function aiCall(action, data = {}) {
   if (api.offline?.()) return { ok: false, error: 'The AI designer works on the full online game, not in this preview. The Default special design works everywhere.' };
@@ -126,13 +128,42 @@ async function aiCall(action, data = {}) {
 function showCredits() {
   for (const el of document.querySelectorAll('.ai-cr')) el.textContent = AI.credits == null ? '' : AI.unlimited ? 'unlimited AI designs (admin)' : `${AI.credits} AI design${AI.credits === 1 ? '' : 's'} left`;
 }
+const LOADING_HTML = '<span class="busy">⏳ Designing… this can take up to a minute. Please wait, it is not ready yet.</span>';
+
 // press AI DESIGN: the result, or the shop if they're out
+// the list of everything the free builder understands: tap one to use it as the description
+function openLibrary(pick) {
+  document.getElementById('lib-list')?.remove();
+  const el = document.createElement('div'); el.id = 'lib-list';
+  el.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(10,5,6,.82);display:flex;align-items:center;justify-content:center;padding:12px';
+  const sec = LIBRARY_LIST.map((g) => `<h4 style="margin:14px 0 2px;color:#f4c542;font:800 15px system-ui">${esc(g.title)}</h4>${g.note ? `<div style="font:400 12px system-ui;color:#c9b99f;margin-bottom:4px">${esc(g.note)}</div>` : ''}<div style="display:flex;flex-wrap:wrap;gap:6px">${g.items.map((x) => `<button class="mini" data-say="${esc(x.say)}" style="text-align:left" title="${esc(x.also ? 'Also understands: ' + x.also : '')}">${esc(x.name)}${x.also ? `<span style="display:block;font:400 10px system-ui;opacity:.7">${esc(x.also.split(', ').slice(0, 3).join(', '))}</span>` : ''}</button>`).join('')}</div>`).join('');
+  el.innerHTML = `<div style="background:#2a1816;border:2px solid rgba(244,197,66,.6);border-radius:10px;padding:16px 18px;max-width:min(640px,96vw);max-height:90vh;overflow:auto;color:#f5ecdf;font:400 14px/1.4 system-ui">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b style="font-size:17px">What the free builder understands</b><button class="mini" id="lib-x">CLOSE</button></div>
+    <p style="margin:6px 0 0;font-size:12px;color:#c9b99f">Tap one to write it in the description. Mix them: "a knight riding a horse, then a dragon falls from the sky". Add a colour (red, gold...), "giant" or "tiny", "fire" or "ice". For anything not here use the paid AI, or upload your own 3D model.</p>${sec}</div>`;
+  document.body.appendChild(el);
+  el.onclick = (e) => { if (e.target === el || e.target.id === 'lib-x') return el.remove(); const b = e.target.closest('[data-say]'); if (b) { el.remove(); pick(b.dataset.say); } };
+}
+// a pop-up in the middle of the screen while the AI works (it can take up to a minute)
+function showWait(msg) {
+  let el = document.getElementById('ai-wait');
+  if (!el) {
+    const st = document.createElement('style'); st.textContent = '@keyframes ckspin { to { transform: rotate(360deg); } }'; document.head.appendChild(st);
+    el = document.createElement('div'); el.id = 'ai-wait';
+    el.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(10,5,6,.75)';
+    el.innerHTML = '<div style="background:#2a1816;border:2px solid rgba(244,197,66,.6);border-radius:10px;padding:22px 28px;max-width:min(360px,86vw);text-align:center;color:#f5ecdf;font:700 18px/1.4 system-ui,sans-serif"><div style="font-size:34px;display:inline-block;animation:ckspin 1.4s linear infinite">⏳</div><div id="ai-wait-t" style="margin-top:8px"></div><div style="margin-top:6px;font:400 13px system-ui,sans-serif;color:#c9b99f">This can take up to a minute. Please wait.</div></div>';
+    document.body.appendChild(el);
+  }
+  document.getElementById('ai-wait-t').textContent = msg; el.hidden = false; el.style.display = 'flex';
+}
+function hideWait() { const el = document.getElementById('ai-wait'); if (el) { el.hidden = true; el.style.display = 'none'; } }
 async function aiDesign(kind, text, btn, say, extra = {}) {
   if (!text.trim()) { say('<span class="warn">Describe it first, in your own words (any language).</span>'); return null; }
   const label = btn.textContent;
   btn.disabled = true; btn.textContent = 'DESIGNING…';
-  const r = await aiCall(kind, { text, ...extra });
-  btn.disabled = false; btn.textContent = label;
+  showWait({ special: 'Designing your special…', tweak: 'Changing your special…', scene: 'Building your arena…', scenetweak: 'Changing your arena…', arena: 'Painting your arena…' }[kind] || 'Designing…');
+  let r;
+  try { r = await aiCall(kind, { text, ...extra }); } finally { hideWait(); btn.disabled = false; btn.textContent = label; }
+  AI.unavailable = !r.ok && !!(r.login || /not set up|online game|Log in/i.test(r.error || ''));
   if (r.ok) return r[kind === 'tweak' ? 'special' : kind];
   if (r.buy) openBuy();
   say(`<span class="bad">${esc(r.error || 'It did not work. Try again.')}</span>`);
@@ -323,34 +354,37 @@ function buildFighterEdit() {
     <h3>2. THE SPECIAL</h3>
     <div class="box">
       <div class="chips" id="fe-modes">
-        <button class="chip" data-m="basic">1. DEFAULT SPECIAL DESIGN <span class="note">(the basics)</span></button>
-        <button class="chip" data-m="creative">2. CREATIVE SPECIAL DESIGN <span class="note">(follows only the description)</span></button>
+        <button class="chip" data-m="basic">1. FREE: BUILD IT FROM MY DESCRIPTION <span class="note">(the game draws it from its own shapes)</span></button>
+        <button class="chip" data-m="creative">2. PAID: THE AI BUILDS IT <span class="note">(any description, realistic, any language)</span></button>
       </div>
       <p class="note" id="fe-modenote"></p>
       <div id="fe-creative">
         <label class="f">Describe your special in your own words (any language)<textarea id="fe-desc" placeholder="e.g. the player rides a wave towards the opponent, washing everything in its way"></textarea></label>
-        <div class="row"><button class="mini" id="fe-fill">BUILD FROM MY WORDS (FREE, basic)</button><button class="mini ai" id="fe-ai">✨ AI DESIGN</button><span class="note ai-cr"></span><a href="#" class="note" id="fe-aibuy">get more</a></div>
-        <p class="note">✨ AI DESIGN builds the special from your description alone, in any language, nothing pre-selected (uses a credit; needs the AI to be set up on the server). The free button only understands simple English words (fireball, beam, stomp, wave...) and uses the game's basic parts. Then TEST it, and say what to change below (each AI change costs another credit; the keyword CHANGE IT is free).</p>
-        <p class="note warn">Heads up: the AI will not get it 100% perfect every time. Each change you ask the AI for (AI DESIGN again or ✨ AI CHANGE) costs another credit. Test it, and make the changes count: describe the whole thing clearly the first time.</p>
+        <div class="row"><button class="mini" id="fe-fill" data-only="free">BUILD IT FROM MY DESCRIPTION (FREE)</button><button class="mini ai" id="fe-ai" data-only="paid">✨ LET THE AI BUILD IT</button><span class="note ai-cr" data-only="paid"></span><a href="#" class="note" id="fe-aibuy" data-only="paid">get more</a></div>
+        <p class="note" data-only="free">FREE: write what you want and the game builds it from its own library (animals, people, weapons, vehicles and effects), instantly and with no limit. Then say what to change in the box below. Want something it does not know, in more detail? Use the paid AI. Want it realistic? Upload your own 3D model below and say in the description what it is: the game combines your model with the effects.</p>
+        <p class="note" data-only="paid">✨ The AI builds the special from your description alone, in any language, nothing pre-selected (uses a credit; needs the AI to be set up on the server). The free button builds from the game's own library (animals, people, weapons, vehicles and effects) and understands simple English words. Then TEST it, and say what to change below (each AI change costs another credit; the keyword CHANGE IT is free).</p>
+        <p class="note warn" data-only="paid">Heads up: the AI will not get it 100% perfect every time. Each change you ask the AI for (AI DESIGN again or ✨ AI CHANGE) costs another credit. Test it, and make the changes count: describe the whole thing clearly the first time.</p>
+        <div class="row"><label class="f">Special's name<input type="text" id="fe-sname" maxlength="22"></label></div>
         <div id="fe-csum" class="note"></div>
         <div class="row"><button class="mini" id="fe-cmodel">UPLOAD YOUR OWN 3D MODEL (OPTIONAL)</button><span class="note" id="fe-cmodelinfo"></span></div>
+        <p class="note warn">If you upload a 3D model, say in the description what it is and what it does (for example: "my model is a horse, it gallops at the opponent"), so the game uses your model instead of building one. Upload it first, then press the build button.</p>
       </div>
-      <div id="fe-basic">
-      <div class="row"><label class="f">Special's name<input type="text" id="fe-sname" maxlength="22"></label></div>
-      <div class="note">The steps, one after another (up to ${MAX_STEPS}):</div>
+      <div id="fe-basic" hidden>
+      <div class="note">Fine-tune the steps if you want (optional), one after another (up to ${MAX_STEPS}):</div>
       <div id="fe-steps"></div>
       <div class="row"><button class="mini" id="fe-addstep">+ ADD A STEP</button><span class="note">e.g. summon a beast, then a giant stomp, then a blast</span></div>
       <input type="file" id="fe-stepfile" accept=".glb,.gltf,.fbx" hidden>
       <div class="note">What the last hit does (up to 3):</div><div class="chips" id="fe-onhit"></div>
-      <div class="row"><label class="f">Damage in all: <span id="fe-dmgv"></span><input type="range" id="fe-dmg" min="1" max="${MAX_DAMAGE}"></label></div>
+      <div class="row"><span class="note">Damage in all: <b id="fe-dmgv"></b> (automatic)</span></div>
       <div class="row"><label class="note">Colour <input type="color" id="fe-scolor"></label><label class="f">Sound<select id="fe-sound"></select></label></div>
       <div class="row"><button class="chip" id="fe-flash">White flash</button><button class="chip" id="fe-shake">Screen shake</button></div>
       </div>
       <div class="row"><button class="btn" id="fe-test" style="flex:1">TEST THE SPECIAL</button><button class="btn" id="fe-try" style="flex:1">▶ TRY IT NOW</button></div>
       <div id="fe-report" class="note"></div>
+      <div class="row" data-only="free"><button class="mini" id="fe-list">📖 WHAT CAN THE FREE BUILDER MAKE?</button></div>
       <div class="box" id="fe-tweakbox" style="margin-top:10px">
         <label class="f">Not quite right? Say what to change<textarea id="fe-tweak" placeholder="e.g. the tiger is too slow, make it bigger and bite 3 times, freeze instead of knock down, add a cage at the end"></textarea></label>
-        <div class="row"><button class="mini" id="fe-tw">CHANGE IT (FREE)</button><button class="mini ai" id="fe-aitw">✨ AI CHANGE</button><button class="mini ghost" id="fe-undo" disabled>↶ UNDO</button><span class="note ai-cr"></span></div>
+        <div class="row"><button class="mini" id="fe-tw">CHANGE IT (FREE)</button><button class="mini ai" id="fe-aitw" data-only="paid">✨ AI CHANGE</button><button class="mini ghost" id="fe-undo" disabled>↶ UNDO</button><span class="note ai-cr"></span></div>
         <p class="note">Try it, say what's wrong, change it, try again, until it's perfect. UNDO goes back a change.</p>
       </div>
     </div>
@@ -367,7 +401,7 @@ function buildFighterEdit() {
   for (const id of ['#fe-c-skin', '#fe-c-shirt', '#fe-c-pants']) $(id).oninput = () => !FE.model && refreshPreview();
   $('#fe-height').oninput = () => { $('#fe-hv').textContent = `${$('#fe-height').value} cm`; };
   const changed = () => { FE.tested = null; $('#fe-report').innerHTML = '<span class="warn">Changed: test it again before saving.</span>'; };
-  for (const id of ['#fe-sname', '#fe-dmg', '#fe-scolor', '#fe-sound']) $(id).addEventListener('input', () => { readSpecial(); showSpecial(); changed(); });
+  for (const id of ['#fe-sname', '#fe-scolor', '#fe-sound']) $(id).addEventListener('input', () => { readSpecial(); showSpecial(); changed(); });
   // the steps: each its own little card (what it is, hits, size, speed, look / your own model)
   $('#fe-steps').addEventListener('input', (e) => {
     const card = e.target.closest('[data-i]'); if (!card) return;
@@ -394,19 +428,22 @@ function buildFighterEdit() {
     FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
   };
   for (const [id, k] of [['#fe-flash', 'flash'], ['#fe-shake', 'shake']]) $(id).onclick = () => { FE.special[k] = !FE.special[k]; showSpecial(); changed(); };
+  // FREE: the game's own library builds what is described (animals, people, weapons, vehicles...): instant, no AI service, unlimited.
+  // Anything it does not know is for the paid AI, or the player's own 3D model.
   $('#fe-fill').onclick = () => {
     const t = $('#fe-desc').value; if (!t.trim()) { $('#fe-report').innerHTML = '<span class="warn">Describe it first.</span>'; return; }
-    if (!understands(t)) { $('#fe-report').innerHTML = "The free button didn't recognise any move in those words, so nothing was changed. Use words like <i>fireball, dash, wave, beam, stomp, summon, cage, meteor, explode</i>, or press ✨ AI DESIGN, which understands any description."; return; }
-    pushUndo(); const old = FE.special.steps; FE.special = { ...describeSpecial(t), mode: 'creative', desc: t }; keepModels(old);
-    showSpecial(); changed(); $('#fe-report').innerHTML += '<br>Built from your words with the basic parts. Test it, or press ✨ AI DESIGN for the full version.';
+    if (!understands(t)) { $('#fe-report').innerHTML = `<span class="warn">The free builder doesn't know that one yet.</span> It knows ${KNOWS}. For anything else use the <b>✨ paid AI</b>, or upload your own 3D model below.`; return; }
+    pushUndo(); const old = FE.special.steps; FE.special = { ...describeSpecial(t), mode: 'basic', desc: t }; keepModels(old);
+    showSpecial(); changed(); $('#fe-report').innerHTML = '<span class="good">✨ Built.</span> <span class="warn">Test it before saving. Want a different look or something it does not know? The paid AI builds anything, in far more detail.</span>';
   };
   $('#fe-cmodel').onclick = () => {
-    const i = FE.special.steps.findIndex((x) => STEPS[x.kind].model);
-    if (i < 0) { $('#fe-report').innerHTML = '<span class="warn">Design the special first (✨ AI DESIGN), then add your model.</span>'; return; }
+    let i = FE.special.steps.findIndex((x) => STEPS[x.kind].model);
+    if (i < 0) { pushUndo(); FE.special = normalizeSpecial({ ...FE.special, steps: [{ ...blankStep('free'), hits: 3, fx: modelFx() }], onHit: FE.special.onHit?.length ? FE.special.onHit : ['knockdown'], mode: 'creative', desc: $('#fe-desc').value }).special; showSpecial(); changed(); i = 0; }
     FE.stepFor = i; $('#fe-stepfile').click();
   };
   $('#fe-modes').onclick = (e) => { const m = e.target.closest('[data-m]')?.dataset.m; if (!m || m === FE.special.mode) return; FE.special.mode = m; showSpecial(); };
   $('#fe-ai').onclick = async () => {
+    $('#fe-report').innerHTML = '<span class="busy">⏳ Designing… this can take up to a minute. Please wait, it is not ready yet.</span>';
     const sp = await aiDesign('special', $('#fe-desc').value, $('#fe-ai'), (h) => { $('#fe-report').innerHTML = h; }, { creative: true, hasModel: FE.special.steps.some((x) => x.model && FE.props[x.model]) });
     if (!sp) return;
     pushUndo();
@@ -427,13 +464,18 @@ function buildFighterEdit() {
   $('#fe-tw').onclick = () => {
     readSpecial();
     const t = $('#fe-tweak').value; if (!t.trim()) return said('<span class="warn">Say what to change first.</span>');
+    if (findThing(t) && /\b(instead|change (it )?to|turn (it )?into|make it (a|an)|replace)\b/i.test(t)) { // (a different thing: build it again, keeping the rest)
+      pushUndo(); const old = FE.special.steps; FE.special = { ...describeSpecial(t), mode: 'basic', desc: FE.special.desc }; keepModels(old);
+      showSpecial(); changed(); return said('<span class="good">Changed.</span> <span class="warn">Test it again before saving.</span>');
+    }
     const r = tweakSpecial(FE.special, t);
-    if (!r.said.length) return said('<span class="warn">I didn\'t catch what to change. Try words like: bigger, faster, slower, 3 hits, stronger, weaker, freeze instead of knock down, red, add a cage, remove the beam, call it ...</span> Or ✨ AI CHANGE understands anything.');
+    if (!r.said.length) return said('<span class="warn">The free change could not understand that.</span> Try: bigger, smaller, faster, slower, hit 3 times, freeze instead of knock down, add a cage... or use the <b>✨ AI CHANGE</b> (paid).');
     pushUndo(); const old = FE.special.steps; FE.special = r.special; keepModels(old);
     showSpecial(); changed(); said(`<span class="good">Changed:</span> ${r.said.map(esc).join(' · ')}. <span class="warn">Test it again before saving.</span>`);
   };
   $('#fe-aitw').onclick = async () => {
     readSpecial();
+    said('<span class="busy">⏳ Designing… this can take up to a minute. Please wait, it is not ready yet.</span>');
     const sp = await aiDesign('tweak', $('#fe-tweak').value, $('#fe-aitw'), said, { special: FE.special, creative: FE.special.mode === 'creative', hasModel: FE.special.steps.some((x) => x.model && FE.props[x.model]) });
     if (!sp) return;
     pushUndo(); const old = FE.special.steps; FE.special = normalizeSpecial({ ...sp, type: 'custom', mode: FE.special.mode, desc: FE.special.desc }).special; keepModels(old);
@@ -441,6 +483,7 @@ function buildFighterEdit() {
   };
   $('#fe-undo').onclick = () => { const prev = FE.undo.pop(); if (!prev) return; FE.special = prev; $('#fe-undo').disabled = !FE.undo.length; showSpecial(); changed(); };
   $('#fe-try').onclick = () => tryNow();
+  $('#fe-list').onclick = () => openLibrary((say) => { $('#fe-desc').value = say; $('#fe-desc').dispatchEvent(new Event('input', { bubbles: true })); $('#fe-report').innerHTML = '<span class="good">Written in the description.</span> Press BUILD IT, or change the words first.'; });
   $('#fe-test').onclick = () => runTest();
   $('#fe-save').onclick = () => saveFighter();
   $('#fe-cancel').onclick = () => { stopPreview(); openFighters(); };
@@ -448,18 +491,18 @@ function buildFighterEdit() {
 function readSpecial() {
   const s = FE.special;
   s.name = $('#fe-sname').value;
-  s.damage = +$('#fe-dmg').value;
   s.color = $('#fe-scolor').value; s.sound = $('#fe-sound').value;
 }
 function showSpecial() {
   const s = FE.special, creative = s.mode === 'creative';
   for (const b of $('#fe-modes').children) b.classList.toggle('on', b.dataset.m === (creative ? 'creative' : 'basic'));
-  $('#fe-basic').hidden = creative; $('#fe-creative').hidden = !creative; $('#fe-tweakbox').hidden = !creative;
-  $('#fe-modenote').textContent = creative ? 'Creative: your description is all that counts. No parts to set.' : 'Default: build it from the basic parts yourself (what it is, shape, effect, damage...).';
-  { const ms = s.steps.find((x) => x.model && FE.props[x.model]); $('#fe-cmodelinfo').textContent = ms ? `Using: ${FE.props[ms.model].name}. The AI uses it when you design again (say where it should appear).` : 'Your model can appear inside the effect (say so in the description).'; }
-  $('#fe-csum').innerHTML = creative ? (s.desc ? `<b>${esc(s.name)}</b>: ${s.steps.map((x) => esc(STEPS[x.kind].label)).join(' → ')} · ${s.onHit.map((k) => esc(ON_HIT[k])).join(', ')} · damage ${s.damage}` : 'Not designed yet: describe it above and press ✨ AI DESIGN.') : '';
+  $('#fe-basic').hidden = true; $('#fe-creative').hidden = false; $('#fe-tweakbox').hidden = false;
+  for (const el of document.querySelectorAll('#fe-creative [data-only], #fe-tweakbox [data-only]')) { el.hidden = el.dataset.only === (creative ? 'free' : 'paid'); el.style.display = el.hidden ? 'none' : ''; }
+  $('#fe-modenote').textContent = creative ? 'Paid: the AI builds it from your description alone, in any language. No parts to set.' : 'Free: describe it and the game builds it from its own shapes. Then say what to change.';
+  { const ms = s.steps.find((x) => x.model && FE.props[x.model]); $('#fe-cmodelinfo').textContent = ms ? `Using: ${FE.props[ms.model].name}` : ''; }
+  $('#fe-csum').innerHTML = (creative || s.desc) ? (s.desc ? `<b>${esc(s.name)}</b>: ${s.steps.map((x) => esc(STEPS[x.kind].label)).join(' → ')} · ${s.onHit.map((k) => esc(ON_HIT[k])).join(', ')} · damage ${s.damage}` : 'Not designed yet: describe it above and press ✨ LET THE AI BUILD IT.') : '';
   $('#fe-sname').value = s.name;
-  $('#fe-dmg').value = s.damage; $('#fe-dmgv').textContent = s.damage;
+  s.damage = autoDamage(s.onHit); $('#fe-dmgv').textContent = s.damage;
   $('#fe-scolor').value = s.color; $('#fe-sound').value = s.sound;
   showSteps();
   for (const b of $('#fe-onhit').children) b.classList.toggle('on', s.onHit.includes(b.dataset.k));
@@ -668,18 +711,22 @@ async function openArenas() {
   }
   api.show('screen-arenas');
 }
-const AE = { rec: null, cfg: null };
+const AE = { rec: null, cfg: null, mode: 'free', undo: [] };
 function buildArenaEdit() {
   screen('screen-arena-edit', `
     <h2 id="ae-title">NEW ARENA</h2>
-    <label class="f">Describe the place (then press BUILD IT)<textarea id="ae-desc" placeholder="e.g. a snowy mountain dojo at night with lanterns"></textarea></label>
-    <div class="row"><button class="mini" id="ae-fill">BUILD IT FROM MY WORDS (FREE)</button><button class="mini ai" id="ae-ai">✨ AI DESIGN</button><button class="mini ai" id="ae-aipic">🖼 REALISTIC AI ARENA (3 designs)</button><span class="note ai-cr"></span><a href="#" class="note" id="ae-aibuy">get more</a></div>
-    <p class="note" id="ae-aimsg">FREE: build it from the game's parts (BUILD IT reads English keywords, or pick the parts yourself). PAID (a credit): AI DESIGN picks the parts for any place, in any language, and 🖼 REALISTIC AI ARENA paints a realistic picture of it like a photo ("Hogwarts at night", "Tatooine").</p>
-    <div class="row"><label class="f">Name<input type="text" id="ae-name" maxlength="28"></label><label class="f">Ground<select id="ae-ground"></select></label></div>
-    <div class="row"><label class="f">Sky<select id="ae-sky"></select></label><label class="f">Weather<select id="ae-weather"></select></label><label class="note">Colour <input type="color" id="ae-accent"></label></div>
-    <div class="note">Around the arena (up to 5):</div><div class="chips" id="ae-props"></div>
+    <div class="chips" id="ae-modes"><button class="chip" data-m="free">1. FREE: BUILD IT FROM MY DESCRIPTION <span class="note">(the game builds it from its own parts)</span></button><button class="chip" data-m="paid">2. PAID: REALISTIC ARENA <span class="note">(painted by Gemini, like a photo)</span></button></div>
+    <label class="f">Describe the place<textarea id="ae-desc" placeholder="e.g. a snowy mountain dojo at night with lanterns"></textarea></label>
+    <div class="row"><button class="mini" id="ae-fill" data-only="free">BUILD IT FROM MY DESCRIPTION (FREE)</button><button class="mini ai" id="ae-ai" hidden>AI PARTS</button><button class="mini ai" id="ae-aipic" data-only="paid">🖼 PAINT IT REALISTIC (3 designs)</button><span class="note ai-cr" data-only="paid"></span><a href="#" class="note" id="ae-aibuy" data-only="paid">get more</a></div>
+    <p class="note" id="ae-aimsg" data-only="free">FREE: describe the place and the AI builds a detailed arena for you from the game's own shapes (floor markings, flags, trees, buildings, chairs, fences...), up to 20 a day. Any language. Press LOOK to see it, then SAVE.</p>
+    <p class="note" data-only="paid">Two ways to get your place: 1. GAME ARENA: the game builds it from its own parts (ground, sky, weather, things around), for any place in any language. 2. REALISTIC ARENA: Gemini paints a realistic picture of it like a photo ("Hogwarts at night", "Tatooine"). BUILD IT FROM MY WORDS is the free basic version of 1 (English keywords).</p>
+    <div class="row"><label class="f">Name<input type="text" id="ae-name" maxlength="28"></label></div>
+    <div class="row" hidden><label class="f">Ground<select id="ae-ground"></select></label></div>
+    <div class="row" hidden><label class="f">Sky<select id="ae-sky"></select></label><label class="f">Weather<select id="ae-weather"></select></label><label class="note">Colour <input type="color" id="ae-accent"></label></div>
+    <div hidden><div class="note">Around the arena (up to 5):</div><div class="chips" id="ae-props"></div></div>
     <div class="row" id="ae-picrow" hidden><span class="note">This arena has an AI-painted picture behind it.</span><button class="mini ghost" id="ae-nopic">REMOVE PICTURE</button></div>
     <p class="note">The arena shows behind this menu as you change it. Hide the menu to look: <button class="mini" id="ae-peek">LOOK (3 s)</button></p>
+    <div class="box" data-only="free"><label class="f">Not quite right? Say what to change<textarea id="ae-tweak" placeholder="e.g. the castle is too small, add more trees, make the floor darker, move the stage closer"></textarea></label><div class="row"><button class="mini" id="ae-tw">CHANGE IT</button><button class="mini ghost" id="ae-undo" disabled>↶ UNDO</button></div></div>
     <p class="note bad" id="ae-err"></p>
     <div class="foot"><button class="btn" id="ae-save">SAVE</button><button class="btn" id="ae-cancel">CANCEL</button></div>`);
   const sel = (id, obj) => { $(id).innerHTML = Object.entries(obj).map(([k, v]) => `<option value="${k}">${esc(v.label || v)}</option>`).join(''); };
@@ -693,7 +740,26 @@ function buildArenaEdit() {
     if (i >= 0) p.splice(i, 1); else if (p.length < 5) p.push(k);
     showArena(); api.previewArena(AE.cfg);
   };
-  $('#ae-fill').onclick = () => { const t = $('#ae-desc').value; if (!t.trim()) return; const nm = $('#ae-name').value.trim(); AE.cfg = { ...AE.cfg, ...describeArena(t, nm && nm !== 'My Arena' ? nm : undefined) }; showArena(); api.previewArena(AE.cfg); };
+  $('#ae-modes').onclick = (e) => { const m = e.target.closest('[data-m]')?.dataset.m; if (!m || m === AE.mode) return; AE.mode = m; showArena(); };
+  // free: the AI writes a detailed recipe (floor markings, flags, trees, buildings...); if it can't, the basic keyword builder does what it can
+  $('#ae-fill').onclick = async () => {
+    const t = $('#ae-desc').value; if (!t.trim()) return;
+    readArena();
+    $('#ae-err').innerHTML = 'Building your arena… this can take up to a minute.';
+    const a = await aiDesign('scene', t, $('#ae-fill'), (h) => { $('#ae-err').innerHTML = h; });
+    if (a) {
+      AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather,
+        accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent, scene: { floorColor: a.floorColor, floor: a.floor, objects: a.objects } };
+      delete AE.cfg.backdrop; delete AE.cfg.floor;
+      
+      $('#ae-err').innerHTML = '<span class="good">🗺 Built.</span> Press LOOK to see it, then SAVE.';
+    } else if (AI.unavailable) {
+      const nm = $('#ae-name').value.trim();
+      AE.cfg = { ...AE.cfg, ...describeArena(t, nm && nm !== 'My Arena' ? nm : undefined) }; delete AE.cfg.scene;
+      $('#ae-err').innerHTML += '<br>The basic keyword builder was used instead.';
+    }
+    showArena(); api.previewArena(AE.cfg);
+  };
   $('#ae-nopic').onclick = () => { delete AE.cfg.backdrop; delete AE.cfg.floor; showArena(); api.previewArena(AE.cfg); };
   $('#ae-peek').onclick = () => { const s = $('#screen-arena-edit'); s.style.opacity = '0'; setTimeout(() => { s.style.opacity = ''; }, 3000); };
   $('#ae-save').onclick = async () => {
@@ -722,16 +788,36 @@ function buildArenaEdit() {
     if (!a) return;
     AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), backdrop: a.backdrop?.url ? { url: a.backdrop.url } : AE.cfg.backdrop, floor: a.floor?.url ? { url: a.floor.url } : AE.cfg.floor,
       ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather, accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent };
+    delete AE.cfg.scene;
     $('#ae-err').innerHTML = '<span class="good">🖼 Painted by the AI:</span> SAVE to keep it.';
     showArena(); api.previewArena(AE.cfg);
   };
   $('#ae-aibuy').onclick = (e) => { e.preventDefault(); openBuy(); };
+  // change a little of the arena with words (the AI edits the recipe), instead of building it all again
+  $('#ae-tw').onclick = async () => {
+    const t = $('#ae-tweak').value; if (!t.trim()) return;
+    if (!AE.cfg.scene) { $('#ae-err').innerHTML = '<span class="warn">Build the arena first, then say what to change.</span>'; return; }
+    readArena();
+    $('#ae-err').innerHTML = LOADING_HTML;
+    const c = AE.cfg, sc = c.scene;
+    const a = await aiDesign('scenetweak', t, $('#ae-tw'), (h) => { $('#ae-err').innerHTML = h; }, { scene: { name: c.name, ground: c.ground, sky: c.sky, weather: c.weather, accent: c.accent, floorColor: sc.floorColor || '', floor: sc.floor || [], objects: sc.objects || [] } });
+    if (!a) return;
+    AE.undo.push(JSON.parse(JSON.stringify(AE.cfg))); $('#ae-undo').disabled = false;
+    AE.cfg = { ...AE.cfg, name: String(a.name || c.name).slice(0, 24), ground: a.ground in GROUNDS ? a.ground : c.ground, sky: a.sky in SKIES ? a.sky : c.sky, weather: a.weather in WEATHER ? a.weather : c.weather,
+      accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : c.accent, scene: { floorColor: a.floorColor, floor: a.floor, objects: a.objects } };
+    
+    $('#ae-err').innerHTML = '<span class="good">🗺 Changed.</span> Press LOOK to see it, then SAVE.';
+    showArena(); api.previewArena(AE.cfg);
+  };
+  $('#ae-undo').onclick = () => { const prev = AE.undo.pop(); if (!prev) return; AE.cfg = prev; $('#ae-undo').disabled = !AE.undo.length; showArena(); api.previewArena(AE.cfg); };
 }
 function readArena() {
   Object.assign(AE.cfg, { name: $('#ae-name').value, ground: $('#ae-ground').value, sky: $('#ae-sky').value, weather: $('#ae-weather').value, accent: $('#ae-accent').value });
 }
 function showArena() {
   const c = AE.cfg;
+  for (const b of $('#ae-modes').children) b.classList.toggle('on', b.dataset.m === AE.mode);
+  for (const el of document.querySelectorAll('#screen-arena-edit [data-only]')) { el.hidden = el.dataset.only !== AE.mode; el.style.display = el.hidden ? 'none' : ''; }
   $('#ae-name').value = c.name; $('#ae-ground').value = c.ground; $('#ae-sky').value = c.sky; $('#ae-weather').value = c.weather; $('#ae-accent').value = c.accent || '#ffb347';
   for (const b of $('#ae-props').children) b.classList.toggle('on', c.props.includes(b.dataset.k));
   $('#ae-picrow').hidden = !c.backdrop?.url;
@@ -739,6 +825,7 @@ function showArena() {
 function editArena(rec) {
   AE.rec = rec;
   AE.cfg = rec ? { ...rec, props: [...rec.props] } : { id: newId('arena'), created: Date.now(), ...describeArena('', 'My Arena'), props: ['trees', 'rocks'] };
+  AE.mode = rec?.backdrop?.url ? 'paid' : 'free'; AE.undo = [];
   $('#ae-title').textContent = rec ? `EDIT ${rec.name}` : 'NEW ARENA';
   $('#ae-desc').value = ''; $('#ae-err').textContent = '';
   showArena();

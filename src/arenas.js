@@ -5,6 +5,7 @@
 // An arena: { id, name, ground, sky, weather, props: [...], accent }
 
 import * as THREE from 'three';
+import { sanitizeScene, buildScene } from './scene.js';
 
 export const GROUNDS = {
   grass: { label: 'Grass', color: '#5f8f3e', alt: '#557f37' },
@@ -167,6 +168,9 @@ export class CustomArena {
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; this.group.add(ground);
     if (cfg.backdrop?.url) { ground.geometry.dispose(); ground.geometry = new THREE.PlaneGeometry(200, 140); ground.position.z = -35; } // (the floor runs all the way to the painted background)
     if (cfg.floor?.url) this.addFloor(cfg.floor.url, ground);
+    // the detailed arena: a recipe (painted floor + objects), re-checked here whoever made it
+    const sc = cfg.scene && !cfg.backdrop?.url ? sanitizeScene(cfg.scene) : null;
+    if (sc) buildScene(this, sc, ground);
     const ring = new THREE.Mesh(new THREE.RingGeometry(8.6, 8.85, 64), new THREE.MeshBasicMaterial({ color: cfg.accent || '#ffb347', transparent: true, opacity: 0.55, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.scale.set(1, 0.32, 1); ring.position.y = 0.01; this.group.add(ring);
     // sky things
@@ -181,7 +185,7 @@ export class CustomArena {
     }
     // the props, round the back and the sides (never in the fight or in front of the camera)
     this.animated = [];
-    if (!cfg.backdrop?.url) for (const p of cfg.props || []) this.addProps(p, R, cfg);
+    if (!cfg.backdrop?.url && !sc) for (const p of cfg.props || []) this.addProps(p, R, cfg);
     // weather
     this.weather = null;
     if (['rain', 'snow', 'embers', 'leaves'].includes(cfg.weather)) {

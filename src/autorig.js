@@ -291,5 +291,84 @@ export function buildAutoRig(scene, { height, rotationY = 0, neckFrac = null, sh
     bones[B.root].position.z = cur.lunge * scale;
   }
 
+  // Heal stretched spikes ("pointy shoulders"): skin weights guessed from a T-pose can leave a patch of a
+  // wide sleeve / cape / thick arm tied to the wrong bone, and a few poses later its triangles are pulled
+  // into long thin sheets. Pose the figure the way the game will, find the edges that got much longer than they
+  // are at rest, and smooth the skin weights around them with their neighbours until the stretch is gone.
+  function healStretch() {
+    const POSES = ['idle', 'punch', 'kick', 'uppercut'];
+    const meshes = object.children.filter((c) => c.isSkinnedMesh);
+    const saved = { ...cur };
+    const v = new V3();
+    const poseAll = (anim) => { for (let i = 0; i < 40; i++) update(1 / 30, anim, { t: i / 30 }, 1); object.updateMatrixWorld(true); skeleton.update(); };
+    const jobs = meshes.map((mesh) => {
+      const geo = mesh.geometry, pos = geo.attributes.position, n = pos.count;
+      const idx = geo.index ? geo.index.array : null;
+      // vertices at the same spot (UV seams) count as one, so smoothing never opens a crack
+      const key = new Map(), canon = new Int32Array(n);
+      for (let i = 0; i < n; i++) { const k = `${Math.round(pos.getX(i) * 2000)},${Math.round(pos.getY(i) * 2000)},${Math.round(pos.getZ(i) * 2000)}`; if (!key.has(k)) key.set(k, i); canon[i] = key.get(k); }
+      const edges = new Set(), nb = new Map();
+      const tri = idx || Int32Array.from({ length: n }, (_, i) => i);
+      for (let t = 0; t + 2 < tri.length; t += 3) for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) {
+        const i = canon[tri[t + a]], j = canon[tri[t + b]]; if (i === j) continue;
+        const e = i < j ? i * n + j : j * n + i; if (edges.has(e)) continue; edges.add(e);
+        (nb.get(i) || nb.set(i, []).get(i)).push(j); (nb.get(j) || nb.set(j, []).get(j)).push(i);
+      }
+      const rest = Array.from({ length: n }, (_, i) => new V3().fromBufferAttribute(pos, i));
+      return { mesh, geo, n, canon, nb, rest, edgeList: [...edges].map((e) => [Math.floor(e / n), e % n]) };
+    });
+    const bad = (job, posedByPose) => { // vertices on an edge that got much longer than at rest in any pose
+      const out = new Set(); let worst = 1;
+      for (const posed of posedByPose) for (const [i, j] of job.edgeList) {
+        const r = job.rest[i].distanceTo(job.rest[j]); if (r < 1e-5) continue;
+        const d = posed[i].distanceTo(posed[j]), q = d / r;
+        if (q > 1.9 && d - r > 0.03 * L.H) { out.add(i); out.add(j); }
+        if (q > worst) worst = q;
+      }
+      return { out, worst };
+    };
+    const measure = () => {
+      const per = jobs.map(() => []);
+      for (const anim of POSES) {
+        poseAll(anim);
+        jobs.forEach((job, k) => { const arr = []; for (let i = 0; i < job.n; i++) { job.mesh.getVertexPosition(i, v); arr.push(v.clone().applyMatrix4(job.mesh.matrixWorld)); } per[k].push(arr); });
+      }
+      return jobs.map((job, k) => bad(job, per[k]));
+    };
+    try {
+      let result = measure();
+      for (let round = 0; round < 3 && result.some((r) => r.out.size); round++) {
+        jobs.forEach((job, k) => {
+          const sw = job.geo.attributes.skinWeight, si = job.geo.attributes.skinIndex, N = BONES.length;
+          const dense = (i) => { const d = new Float32Array(N); for (let c = 0; c < 4; c++) d[si.array[i * 4 + c]] += sw.array[i * 4 + c]; return d; };
+          // grow the problem area by two steps, then average each vertex's weights with its neighbours' (a few times)
+          let area = new Set(result[k].out);
+          for (let g = 0; g < 3; g++) for (const i of [...area]) for (const j of job.nb.get(i) || []) area.add(j);
+          const cache = new Map(); const get = (i) => cache.get(i) || (cache.set(i, dense(i)), cache.get(i));
+          for (let pass = 0; pass < 3; pass++) {
+            const next = new Map();
+            for (const i of area) {
+              const acc = new Float32Array(N), ns = job.nb.get(i) || [];
+              const own = get(i); for (let b = 0; b < N; b++) acc[b] = own[b] * 1.0;
+              for (const j of ns) { const o = get(j); for (let b = 0; b < N; b++) acc[b] += o[b]; }
+              const tot = 1 + ns.length; for (let b = 0; b < N; b++) acc[b] /= tot;
+              next.set(i, acc);
+            }
+            for (const [i, acc] of next) cache.set(i, acc);
+          }
+          for (let v2 = 0; v2 < job.n; v2++) {
+            const c = job.canon[v2]; if (!area.has(c)) continue;
+            const d = cache.get(c), list = [...d.keys()].map((b) => [b, d[b]]).sort((p, q) => q[1] - p[1]).slice(0, 4);
+            const total = list.reduce((a, [, w]) => a + w, 0) || 1;
+            for (let c2 = 0; c2 < 4; c2++) { si.array[v2 * 4 + c2] = list[c2] ? list[c2][0] : 0; sw.array[v2 * 4 + c2] = list[c2] ? list[c2][1] / total : 0; }
+          }
+          si.needsUpdate = sw.needsUpdate = true;
+        });
+        result = measure();
+      }
+    } finally { Object.assign(cur, saved, GUARD); }
+  }
+  try { healStretch(); } catch (err) { console.warn('auto-rig: stretch check skipped', err); }
+
   return { object, materials, update, landmarks: L, bones: Object.fromEntries(bones.map((b) => [b.name, b])) };
 }

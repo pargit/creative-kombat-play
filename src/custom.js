@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { Effect, strike, registerEffect, tigerMesh } from './effects.js';
 import { DOT } from './fx.js';
 import { loadProp } from './rig.js';
+import { libraryFx, findThing } from './library.js';
 
 export const STEPS = {
   shot: { label: 'Throw a shot', anim: 'throw', model: true, help: 'Something flies at them: a fireball, a shuriken, a rock... (or your own model)' },
@@ -35,6 +36,8 @@ export const ON_HIT = {
 export const SHAPES = { orb: 'Glowing orb', star: 'Star', blade: 'Spinning blade', rock: 'Rock', arrow: 'Arrow' };
 export const SOUNDS = { zap: 'Zap', whoosh: 'Whoosh', thud: 'Boom', teleport: 'Warp', special: 'Power up', glass: 'Shatter', whip: 'Crack' };
 export const MAX_DAMAGE = 25, MAX_STEPS = 4, MAX_HITS = 10;
+// Damage is not chosen: every special does the maximum (25 over all its hits), whatever its effects.
+export const autoDamage = () => MAX_DAMAGE;
 const NO_STACK = { knockdown: ['launch'], launch: ['knockdown'], push: ['pull'], pull: ['push'], daze: ['freeze'], freeze: ['daze'] };
 
 export function blankStep(kind = 'shot') { return { kind, hits: 1, size: 1, speed: 1, shape: 'orb', model: null }; }
@@ -50,7 +53,6 @@ export function normalizeSpecial(sp) {
   s.name = String(s.name || '').toUpperCase().replace(/[^\p{L}\p{N} !'?.-]/gu, '').trim().slice(0, 22);
   if (!s.name) { s.name = 'MY SPECIAL'; problems.push('It needs a name.'); }
   const num = (o, k, lo, hi, def, what = k) => { let v = Number(o[k]); if (!Number.isFinite(v)) v = def; if (v < lo || v > hi) problems.push(`${what} must be ${lo}–${hi}${k === 'damage' ? ' (fair against the built-in moves)' : ''}.`); o[k] = Math.min(hi, Math.max(lo, v)); };
-  num(s, 'damage', 1, MAX_DAMAGE, 20);
   s.steps = s.steps.slice(0, MAX_STEPS).map((st, i) => {
     const o = { ...blankStep(), ...st };
     if (!STEPS[o.kind]) { problems.push(`Step ${i + 1}: "${o.kind}" isn't a part: a shot was used.`); o.kind = 'shot'; }
@@ -70,14 +72,63 @@ export function normalizeSpecial(sp) {
   s.onHit = [...new Set((Array.isArray(s.onHit) ? s.onHit : []).filter((k) => ON_HIT[k]))];
   for (const k of [...s.onHit]) for (const x of NO_STACK[k] || []) if (s.onHit.includes(x) && s.onHit.indexOf(x) > s.onHit.indexOf(k)) { s.onHit.splice(s.onHit.indexOf(x), 1); problems.push(`"${ON_HIT[x]}" doesn't go with "${ON_HIT[k]}": kept the first.`); }
   if (s.onHit.length > 3) { s.onHit = s.onHit.slice(0, 3); problems.push('At most 3 effects: kept the first 3.'); }
+  s.damage = autoDamage(s.onHit);
   if (!/^#[0-9a-f]{6}$/i.test(s.color)) s.color = '#ff8a2a';
   if (!SOUNDS[s.sound]) s.sound = 'zap';
   s.flash = !!s.flash; s.shake = s.shake !== false;
   s.mode = s.mode === 'creative' ? 'creative' : 'basic'; s.desc = String(s.desc || '').slice(0, 600);
-  delete s.delivery; delete s.hits; delete s.size; delete s.speed; delete s.shape;
+  delete s.delivery; delete s.hits; delete s.size; delete s.speed; delete s.shape; delete s.plan;
   return { special: s, problems };
 }
 export const firstAnim = (sp) => STEPS[(sp.steps?.[0]?.kind) || ({ projectile: 'shot' }[sp.delivery] || sp.delivery)]?.anim || 'throw';
+
+// ── free presets: big ideas the free builder knows how to draw from the basic shapes ──
+// (like the original tiger, made of simple shapes). Same data as the AI's freestyle effects.
+const L = (o) => ({ glow: true, opacity: 0.9, count: 1, spread: 'point', spreadSize: 1, sx: 1, sy: 1, sz: 1, fromA: 'user', fromDx: 0, fromDy: 0, toA: 'opponent', toDx: 0, toDy: 0, path: 'line', pathAmp: 1.5, start: 0, end: 1, stagger: 0, grow0: 1, grow1: 1, spin: 0, fade: 'inout', ...o });
+const FREE_PRESETS = [
+  // a wave the user rides into them, washing them away
+  [/\b(wave|waves|tsunami|surf|surfs|surfing|flood|floods|wash(es)? (them )?away)\b/, () => ({
+    frames: 80, carry: true, reach: 12, hitFrom: 0.3, hitTo: 0.8,
+    layers: [
+      L({ shape: 'sphere', color: '#1f7fe0', glow: false, opacity: 0.85, count: 8, spread: 'column', spreadSize: 2.6, sx: 2.2, sy: 2.2, sz: 2.6, fromDx: 1, toDx: 3, path: 'accel', grow0: 0.5, grow1: 1.3 }),
+      L({ shape: 'sphere', color: '#bfe6ff', count: 8, spread: 'cloud', spreadSize: 1.8, sx: 0.8, sy: 0.8, sz: 0.8, fromDx: 1.5, fromDy: 2.6, toDx: 3.5, toDy: 2.6, path: 'wave', pathAmp: 0.6, stagger: 0.4 }),
+      L({ shape: 'disc', color: '#2f9fff', glow: false, opacity: 0.6, sx: 8, sy: 1, sz: 3.5, fromA: 'ground_user', toA: 'ground_opponent', toDx: 3, path: 'accel' }),
+    ],
+  })],
+  // a tornado that grabs them
+  [/\b(tornado|tornados|twister|whirlwind|cyclone)\b/, () => ({
+    frames: 100, carry: false, reach: 12, hitFrom: 0.3, hitTo: 0.85,
+    layers: [
+      L({ shape: 'torus', color: '#cfd8dc', opacity: 0.75, count: 7, spread: 'column', spreadSize: 4.2, sx: 2.4, sy: 2.4, sz: 2.4, fromA: 'opponent', fromDy: -0.2, toA: 'opponent', toDy: -0.2, spin: 4, grow0: 0.3, grow1: 1.3 }),
+      L({ shape: 'sphere', color: '#ffffff', opacity: 0.8, count: 10, spread: 'column', spreadSize: 4, sx: 0.4, sy: 0.4, sz: 0.4, fromA: 'opponent', toA: 'opponent', path: 'orbit', pathAmp: 1.6, stagger: 0.5 }),
+    ],
+  })],
+  // a rain of swords / spears / spikes from above
+  [/\b(swords?|spears?|daggers?|knives|spikes?|needles)\b.*\b(rain|fall|falls|down|sky)\b|\b(rain|rains|shower|storm)\b.*\b(swords?|spears?|daggers?|knives|spikes?|needles)\b/, () => ({
+    frames: 90, carry: false, reach: 12, hitFrom: 0.4, hitTo: 0.85,
+    layers: [L({ shape: 'spike', color: '#dfe6ee', glow: false, opacity: 1, count: 14, spread: 'cloud', spreadSize: 4.5, sx: 0.5, sy: 1.6, sz: 0.5, fromA: 'above_opponent', fromDy: 10, toA: 'ground_opponent', stagger: 0.7, path: 'accel' })],
+  })],
+  // a whale that swims through them
+  [/\b(whale|whales|orca|dolphin|shark)\b/, () => ({
+    frames: 90, carry: false, reach: 12, hitFrom: 0.35, hitTo: 0.8,
+    layers: [
+      L({ shape: 'sphere', color: '#3b6ea8', glow: false, opacity: 0.95, sx: 5, sy: 2.4, sz: 2.2, fromA: 'behind_user', fromDy: 1, toA: 'far_side', toDy: 1.5, path: 'arc', pathAmp: 2.5 }),
+      L({ shape: 'cone', color: '#2f5c8f', glow: false, opacity: 0.95, sx: 1.6, sy: 2.4, sz: 0.6, fromA: 'behind_user', fromDx: -2.8, fromDy: 1.4, toA: 'far_side', toDx: -2.8, toDy: 1.9, path: 'arc', pathAmp: 2.5, spin: 1 }),
+      L({ shape: 'sphere', color: '#bfe6ff', count: 10, spread: 'cloud', spreadSize: 2.4, sx: 0.5, sy: 0.5, sz: 0.5, fromA: 'behind_user', fromDy: 2, toA: 'far_side', toDy: 2.5, path: 'arc', pathAmp: 2.5, stagger: 0.3 }),
+    ],
+  })],
+  // a pillar of fire / a volcano under them
+  [/\b(fire ?pillar|pillar of fire|volcano|eruption|erupts?|geyser)\b/, () => ({
+    frames: 80, carry: false, reach: 12, hitFrom: 0.4, hitTo: 0.8,
+    layers: [
+      L({ shape: 'cylinder', color: '#ff6a1a', opacity: 0.7, sx: 2, sy: 6, sz: 2, fromA: 'ground_opponent', fromDy: 2, toA: 'ground_opponent', toDy: 2, grow0: 0.1, grow1: 1.2 }),
+      L({ shape: 'sphere', color: '#ffd23f', count: 12, spread: 'column', spreadSize: 5, sx: 0.6, sy: 0.6, sz: 0.6, fromA: 'ground_opponent', toA: 'ground_opponent', toDy: 6, path: 'accel', stagger: 0.6 }),
+    ],
+  })],
+];
+// a single layer that shows the player's own uploaded model flying at them (used when the words are not known)
+export const modelFx = () => ({ frames: 70, carry: false, reach: 12, hitFrom: 0.4, hitTo: 0.8,
+  layers: [L({ shape: 'model', color: '#ffffff', glow: false, opacity: 1, sx: 3, sy: 3, sz: 3, fromDx: 1, toDx: 1, path: 'accel' })] });
 
 // ── words → parts (understood right here, no AI service) ─────────────────────────
 // "summon a tiger that pounces on them, then a giant foot stomps them, then explode"
@@ -116,12 +167,16 @@ const NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, twice: 2 };
 // does any part of the words match something the free builder knows? (if not, FILL IN would only give the default shot)
 export function understands(text) {
   const t = String(text || '').toLowerCase();
-  return STEP_KW.some(([re]) => re.test(t));
+  return STEP_KW.some(([re]) => re.test(t)) || FREE_PRESETS.some(([re]) => re.test(t)) || !!findThing(t);
 }
 export function describeSpecial(text) {
   const t = String(text || '').toLowerCase(), s = blankSpecial();
   s.onHit = []; s.steps = [];
   for (const piece of t.split(/\b(?:and then|then|after that|afterwards|followed by|finally)\b|[;.]/).map((p) => p.trim()).filter(Boolean)) {
+    const lib = libraryFx(piece); // (a thing from the game's own library: a horse, a dragon, a sword...)
+    if (lib) { const fs = blankStep('free'); fs.hits = lib.hits || 1; fs.fx = normalizeFx(lib.fx); fs.size = Math.min(2.5, Math.max(0.5, lib.size)); s.steps.push(fs); continue; }
+    const preset = FREE_PRESETS.find(([re]) => re.test(piece));
+    if (preset) { const fs = blankStep('free'); fs.hits = 3; fs.fx = normalizeFx(preset[1]()); if (/\b(huge|giant|massive|big|enormous)\b/.test(piece)) fs.size = 1.7; s.steps.push(fs); continue; }
     const hit = STEP_KW.map(([re, kind]) => [piece.search(re), kind]).filter(([i]) => i >= 0).sort((a, b) => a[0] - b[0])[0];
     if (!hit) continue;
     const st = blankStep(hit[1]);
@@ -140,8 +195,6 @@ export function describeSpecial(text) {
   for (const [re, fx] of FX_KW) if (re.test(t) && !s.onHit.includes(fx)) s.onHit.push(fx);
   const col = Object.keys(SP_COLORS).find((c) => new RegExp(`\\b${c}\\b`).test(t));
   if (col) s.color = SP_COLORS[col];
-  if (/\b(weak|light)\b/.test(t)) s.damage = 12;
-  if (/\b(strong|powerful|deadly|brutal|devastating)\b/.test(t)) s.damage = 25;
   if (!s.onHit.length) s.onHit = ['knockdown'];
   // a name: the main words (what it is), e.g. "ICE SHARDS", "TIGER STOMP"
   const skip = /^(player|rides?|riding|towards?|toward|opponent|enemy|everything|way|washing|washes|a|an|the|that|which|and|with|them|they|it|its|to|of|on|in|at|from|my|your|me|him|her|three|two|four|five|six|one|\d|fast|quick|huge|big|giant|tiny|small|little|very|really|summons?|calls?|freezes?|burns?|knocks?|slows?|stuns?|blinds?|poisons?|launch(es)?|pushes|pulls|hits?|down|times|twice|sky|behind|then|who|runs?|pounces?|comes?|out|up|is|are|throws?|shoots?)$/;
@@ -193,10 +246,6 @@ export function tweakSpecial(sp, text) {
   if (nh) { const n = NUM[nh[1]] ?? Number(nh[1]); each((x) => { x.hits = n; }); said.push(`${n} hit${n > 1 ? 's' : ''}${which}`); }
   else if (/\b(more hits|hit more|more times|more shots)\b/.test(t)) { each((x) => { x.hits = Math.min(6, x.hits + 1); }); said.push(`One more hit${which}`); }
   else if (/\b(fewer hits|less hits|hit less|fewer shots|less times)\b/.test(t)) { each((x) => { x.hits = Math.max(1, x.hits - 1); }); said.push(`One hit fewer${which}`); }
-  const dm = t.match(/\b(\d{1,2})\s*(damage|dmg|hp)\b/);
-  if (dm) { s.damage = Number(dm[1]); said.push(`Damage ${s.damage}`); }
-  else if (/\b(stronger|more damage|too weak|hits? harder|more powerful)\b/.test(t)) { s.damage = Math.min(MAX_DAMAGE, s.damage + 4); said.push(`Stronger (${s.damage} damage)`); }
-  else if (/\b(weaker|less damage|too strong|too powerful|overpowered|op)\b/.test(t)) { s.damage = Math.max(1, s.damage - 4); said.push(`Weaker (${s.damage} damage)`); }
   for (const [re, sh] of SHAPE_KW) { const m = t.match(re); if (m && !NEG.test(t.slice(0, m.index))) { targets.forEach((i) => { s.steps[i].shape = sh; }); said.push(`Shape: ${SHAPES[sh].toLowerCase()}`); break; } }
   // what it does: "freeze instead of knock down", "no poison", "make it daze them"
   for (const [re, fx] of FX_KW) {
@@ -257,17 +306,18 @@ function ownModel(ctx, owner, id, height, onReady) {
 // moves, grows and fades) that the AI writes from the player's words. It is only data, played
 // by the frame count like every other step (same on both phones online), and the hits are
 // still the special's own (damage, on-hit effects), so it can look like anything and stay fair.
-export const FX_SHAPES = ['sphere', 'box', 'cone', 'cylinder', 'torus', 'disc', 'crystal', 'spike', 'ring', 'model']; // (model: the player's own uploaded 3D model)
+export const FX_SHAPES = ['sphere', 'box', 'cone', 'cylinder', 'torus', 'disc', 'flat', 'crystal', 'spike', 'ring', 'model']; // (disc: faces the camera like a wheel or a shield; flat: lies on the ground) // (model: the player's own uploaded 3D model)
 export const FX_ANCHORS = ['user', 'opponent', 'above_opponent', 'above_user', 'ground_opponent', 'ground_user', 'behind_user', 'far_side'];
 export const FX_PATHS = ['line', 'accel', 'arc', 'wave', 'spiral', 'orbit', 'bounce'];
 export const FX_SPREADS = ['point', 'line', 'column', 'ring', 'cloud'];
 export const FX_FADES = ['none', 'in', 'out', 'inout'];
-const MAX_LAYERS = 12, MAX_ITEMS = 120;
+const MAX_LAYERS = 120, MAX_ITEMS = 480;
+const normKeys = (a, lo, hi) => (Array.isArray(a) ? a.slice(0, 12).map((k) => [fnum(k?.[0], 0, 1, 0), fnum(k?.[1], lo, hi, 0)]).sort((x, y) => x[0] - y[0]) : null);
 const fnum = (v, lo, hi, def) => { v = Number(v); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def; };
 const fpick = (v, list, def) => (list.includes(v) ? v : def);
 export function normalizeFx(fx) {
   if (!fx || typeof fx !== 'object' || !Array.isArray(fx.layers) || !fx.layers.length) return null;
-  const out = { frames: Math.round(fnum(fx.frames, 30, 150, 70)), carry: !!fx.carry, reach: fnum(fx.reach, 3, 16, 9), hitFrom: fnum(fx.hitFrom, 0.05, 0.95, 0.4), hitTo: 0, layers: [] };
+  const out = { frames: Math.round(fnum(fx.frames, 30, 150, 70)), gait: fnum(fx.gait, 0.05, 1.5, 0.5), stopU: fnum(fx.stopU, 0.05, 1, 1), lift: normKeys(fx.lift, -6, 6), lunge: normKeys(fx.lunge, -8, 8), carryTo: fnum(fx.carryTo, -12, 12, 1.2), passU: fx.passU == null ? null : fnum(fx.passU, 0.15, 0.9, 0.45), carryAfter: fx.carryAfter == null ? null : fnum(fx.carryAfter, -12, 12, 0), rideRamp: fnum(fx.rideRamp, 0.02, 0.5, 0.06), carry: !!fx.carry, rideY: fnum(fx.rideY, 0, 6, 0), reach: fnum(fx.reach, 3, 16, 9), hitFrom: fnum(fx.hitFrom, 0.05, 0.95, 0.4), hitTo: 0, layers: [] };
   out.hitTo = fnum(fx.hitTo, out.hitFrom, 0.98, Math.min(0.98, out.hitFrom + 0.2));
   let items = 0;
   for (const l of fx.layers.slice(0, MAX_LAYERS)) {
@@ -284,7 +334,12 @@ export function normalizeFx(fx) {
       toA: fpick(l.toA, FX_ANCHORS, 'opponent'), toDx: fnum(l.toDx, -20, 20, 0), toDy: fnum(l.toDy, -3, 14, 0),
       path: fpick(l.path, FX_PATHS, 'line'), pathAmp: fnum(l.pathAmp, 0, 8, 1.5),
       start, end, stagger: fnum(l.stagger, 0, 0.9, 0), grow0: fnum(l.grow0, 0, 6, 1), grow1: fnum(l.grow1, 0, 6, 1), spin: fnum(l.spin, -5, 5, 0),
-      fade: fpick(l.fade, FX_FADES, 'inout'), trail: !!l.trail && count <= 4, offX: fnum(l.offX, -8, 8, 0), offY: fnum(l.offY, -3, 8, 0), offZ: fnum(l.offZ, -2, 2, 0),
+      fade: fpick(l.fade, FX_FADES, 'inout'), trail: !!l.trail && count <= 4, offX: fnum(l.offX, -8, 8, 0), offY: fnum(l.offY, -3, 8, 0), offZ: fnum(l.offZ, -2, 2, 0), rotZ: fnum(l.rotZ, -360, 360, 0),
+      // joints: a part turns about its pivot (swing: degrees each way, swingPhase: where in the stride, swingBias: its resting turn, swingMode: sin or flex (a knee bends one way only)); par: the layer it is attached to (turns with it)
+      swing: fnum(l.swing, -90, 90, 0), swingPhase: fnum(l.swingPhase, 0, 7, 0), swingBias: fnum(l.swingBias, -180, 180, 0), swingMode: l.swingMode === 'flex' ? 'flex' : 'sin',
+      // run: its swinging stops when the thing stops running (fx.stopU); mv: the part of its time spent travelling (it then stands still); act: key poses [[fraction of the special, degrees]...] added to the joint; slide: it drifts this far over its time
+      roll: fnum(l.roll, -30, 30, 0), yaw: fnum(l.yaw, -40, 40, 0), under: !!l.under, run: !!l.run, mv: fnum(l.mv, 0.05, 1, 1), act: normKeys(l.act, -360, 360), chr: !!l.chr, slideX: fnum(l.slideX, -14, 14, 0), slideY: fnum(l.slideY, -6, 10, 0),
+      pv: l.pv == null ? null : fnum(l.pv, -8, 8, 0), bob: fnum(l.bob, 0, 0.5, 0), par: Number.isInteger(l.par) && l.par >= 0 && l.par < out.layers.length ? l.par : -1,
     });
   }
   return out.layers.length ? out : null;
@@ -296,7 +351,7 @@ function fxGeometry(shape) {
     case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, 14);
     case 'torus': return new THREE.TorusGeometry(0.45, 0.12, 8, 24);
     case 'ring': return new THREE.TorusGeometry(0.5, 0.04, 6, 32);
-    case 'disc': return new THREE.CylinderGeometry(0.5, 0.5, 0.06, 24);
+    case 'disc': case 'flat': return new THREE.CylinderGeometry(0.5, 0.5, 0.06, 24);
     case 'crystal': return new THREE.OctahedronGeometry(0.5, 0);
     case 'spike': return new THREE.ConeGeometry(0.25, 1.4, 8);
     default: return new THREE.SphereGeometry(0.5, 16, 12);
@@ -603,13 +658,20 @@ class Free extends Step {
         this.g.add(m); this.items.push({ m, l, i, li });
       }
     }
-    this.fired = 0; this.from = this.o.pos.x; this.to = Math.max(-8.2, Math.min(8.2, this.opp.pos.x - this.d * 1.2));
+    this.fired = 0; this.from = this.o.pos.x; this.to = Math.max(-8.2, Math.min(8.2, this.opp.pos.x - this.d * (fx.carryTo ?? 1.2)));
     this.fx.ctx.sfx.whoosh?.();
   }
   tick(t) {
     const o = this.o, opp = this.opp, d = this.d, fx = this.fx2, u = t / this.frames;
     this.t = t; o.vel.x = 0;
-    if (fx.carry) { o.invuln = 2; const k = Math.min(1, Math.max(0, (u - 0.1) / 0.6)); o.pos.x = this.from + (this.to - this.from) * k; }
+    if (fx.carry) {
+      o.invuln = 2; const cl = (v) => Math.min(1, Math.max(0, v)), sm = (v) => v * v * (3 - 2 * v);
+      if (fx.passU != null) { // (a flying thing: straight to the opponent, over them at passU, then on past them)
+        const tgt = Math.max(-8.2, Math.min(8.2, opp.pos.x - d * fx.carryTo)), aft = Math.max(-8.2, Math.min(8.2, opp.pos.x + d * (fx.carryAfter ?? 0)));
+        o.pos.x = u <= fx.passU ? this.from + (tgt - this.from) * cl((u - 0.1) / (fx.passU - 0.1)) : tgt + (aft - tgt) * cl((u - fx.passU) / (0.9 - fx.passU));
+      } else o.pos.x = this.from + (this.to - this.from) * cl((u - 0.1) / 0.6);
+      if (fx.rideY) { o.pos.y = fx.rideY * sm(cl((u - 0.02) / (fx.rideRamp ?? 0.06))) * sm(cl((0.97 - u) / 0.1)); o.vel.y = 0; }
+    }
     const n = this.st.hits;
     while (this.fired < n) {
       const at = Math.round(this.frames * (fx.hitFrom + (fx.hitTo - fx.hitFrom) * (n > 1 ? this.fired / (n - 1) : 0)));
@@ -636,13 +698,25 @@ class Free extends Step {
   }
   render(time) {
     const d = this.d, u = (this.t || 0) / this.frames, size = this.st.size, TAU = Math.PI * 2;
+    const ls = this.fx2.layers, w = (this.t || 0) * (this.fx2.gait || 0.5), RAD = Math.PI / 180;
+    // each joint's turn now, and where it turns about
+    const stopU = this.fx2.stopU ?? 1, runF = u <= stopU ? 1 : Math.max(0, 1 - (u - stopU) / 0.06);
+    const actAt = (a) => { // key poses, eased between, back to rest outside them
+      if (!a || !a.length) return 0;
+      const pts = [[a[0][0] - 0.04, 0], ...a, [a[a.length - 1][0] + 0.04, 0]];
+      for (let i = 1; i < pts.length; i++) if (u <= pts[i][0]) { const f = Math.min(1, Math.max(0, (u - pts[i - 1][0]) / Math.max(1e-6, pts[i][0] - pts[i - 1][0]))); return pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f * f * (3 - 2 * f); }
+      return 0;
+    };
+    const liftAt = actAt(this.fx2.lift), lungeAt = actAt(this.fx2.lunge);
+    const th = ls.map((l) => (l.swingBias || 0) + (l.swing ? (l.swingMode === 'flex' ? l.swing * Math.max(0, -Math.cos(w + l.swingPhase)) : l.swing * Math.sin(w + l.swingPhase)) * (l.run ? runF : 1) : 0) + actAt(l.act));
+    const piv = ls.map((l) => { const a = l.rotZ * RAD, hl = (l.pv ?? l.sy / 2) * size; return [l.offX * size - Math.sin(a) * hl, l.offY * size - Math.cos(a) * hl]; });
     for (const it of this.items) {
       const { m, l, i } = it, n = l.count, dur = l.end - l.start, iStart = l.start + l.stagger * dur * (i / n), iDur = Math.max(0.04, dur * (1 - l.stagger));
       const k = (u - iStart) / iDur;
       if (k < 0 || k > 1) { m.visible = false; continue; }
       const [ax, ay] = this.anchor(l.fromA), [bx, by] = this.anchor(l.toA);
-      const e = l.path === 'accel' ? k * k : k;
-      let x = ax + d * l.fromDx + (bx + d * l.toDx - ax - d * l.fromDx) * e, y = ay + l.fromDy + (by + l.toDy - ay - l.fromDy) * e, z = 0.2 + l.offZ;
+      const km = l.mv < 1 ? Math.min(1, k / l.mv) : k, e = l.path === 'accel' ? km * km : km;
+      let x = ax + d * l.fromDx + (bx + d * l.toDx - ax - d * l.fromDx) * e, y = ay + l.fromDy + (by + l.toDy - ay - l.fromDy) * e, z = 0.2 + l.offZ * size;
       const f = n > 1 ? i / (n - 1) - 0.5 : 0, a = TAU * i / n;
       if (l.spread === 'line') x += f * l.spreadSize * 2 * d; else if (l.spread === 'column') y += f * l.spreadSize * 2;
       else if (l.spread === 'ring') { x += Math.cos(a) * l.spreadSize; y += Math.sin(a) * l.spreadSize * 0.7; }
@@ -653,16 +727,31 @@ class Free extends Step {
       else if (l.path === 'spiral') { x += Math.cos(k * 14 + i) * amp * (1 - k) * 0.6; y += Math.sin(k * 14 + i) * amp * (1 - k); }
       else if (l.path === 'orbit') { x = ax + d * l.fromDx + Math.cos(k * TAU * 2 + a) * amp; y = ay + l.fromDy + Math.sin(k * TAU * 2 + a) * amp; }
       else if (l.path === 'bounce') y += amp * Math.abs(Math.sin(k * Math.PI * 3));
-      x += d * l.offX; y += l.offY;
+      // forward kinematics: turn the part about its own joint, then about its parent's joint, and so on up the chain
+      let ox = l.offX * size, oy = l.offY * size, rz = l.rotZ;
+      for (let c = it.li, hop = 0; c >= 0 && hop < 8; c = ls[c].par, hop++) {
+        const t = th[c]; if (!t) continue;
+        const ang = t * RAD, ca = Math.cos(ang), sa = Math.sin(ang), dx = ox - piv[c][0], dy = oy - piv[c][1];
+        ox = piv[c][0] + dx * ca + dy * sa; oy = piv[c][1] - dx * sa + dy * ca; rz += t;
+      }
+      ox += l.slideX * k; oy += l.slideY * k;
+      if (l.chr) { ox += lungeAt; oy += liftAt; }
+      x += d * ox; y += oy;
+      if (l.bob) y += l.bob * Math.abs(Math.sin(w)) * size * runF;
       const fade = l.fade === 'in' ? Math.min(1, k * 4) : l.fade === 'out' ? Math.min(1, (1 - k) * 4) : l.fade === 'inout' ? Math.min(1, k * 5, (1 - k) * 5) : 1;
       const g = (l.grow0 + (l.grow1 - l.grow0) * k) * size * Math.max(0.02, fade);
-      m.visible = true; m.position.set(x, Math.max(0.02, y), z);
+      m.visible = true; m.position.set(x, l.under ? y : Math.max(0.02, y), z); // (under: a burrower starts below the floor, which hides it until it comes up)
       m.scale.set(l.sx * g, l.sy * g, l.sz * g);
       if (m.material) m.material.opacity = l.opacity * fade;
       if (it.model) m.rotation.set(0, (d > 0 ? Math.PI / 2 : -Math.PI / 2) + l.spin * time * 2, 0);
       else if (l.shape === 'spike') m.rotation.set(0, 0, d > 0 ? -Math.PI / 2 : Math.PI / 2);
-      else if (l.shape === 'disc' || l.shape === 'ring') m.rotation.set(Math.PI / 2 * (l.shape === 'disc' ? 1 : 0), 0, l.spin * time * 2);
+      else if (l.shape === 'disc') m.rotation.set(Math.PI / 2, l.spin * time * 2, 0);
+      else if (l.shape === 'ring') m.rotation.set(0, 0, l.spin * time * 2);
+      else if (l.shape === 'flat') m.rotation.set(0, l.spin * time * 2, 0);
       else m.rotation.set(l.spin * time * 1.3, l.spin * time * 2, 0);
+      if (rz && !it.model) m.rotation.z -= rz * Math.PI / 180 * d;
+      if (l.roll && !it.model) m.rotation.z -= l.roll * time * d; // (a wheel's spokes turning as it rolls)
+      if (l.yaw && !it.model) m.rotation.y += l.yaw * time; // (a rotor turning about the upright axis)
       if (l.trail) this.fx.ctx.particles.burst(x, y, z, { count: 1, color: l.color, speed: 0.02, gravity: 0, life: 14 });
     }
   }
