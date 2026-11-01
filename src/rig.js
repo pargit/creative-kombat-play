@@ -341,15 +341,22 @@ export async function loadProp(url, height, type) {
   // a rigged model is drawn by its bones, not by its raw geometry: measure the posed vertices (the plain box is wrong, often by a lot)
   let skinned = false;
   src.traverse((o) => { if (o.isSkinnedMesh) skinned = true; });
+  // its own animations (run, attack...) are kept for the special to play; it is measured in its run pose when it has one (a lying tiger would come out huge)
+  const clips = Object.fromEntries((base.animations || []).map((a) => [a.name, a]));
+  const mixer = skinned && base.animations?.length ? new THREE.AnimationMixer(src) : null;
+  const runName = Object.keys(clips).find((n) => /^run|gallop|sprint/i.test(n)) || Object.keys(clips).find((n) => /run/i.test(n));
+  if (mixer && runName) { mixer.clipAction(clips[runName]).play(); mixer.setTime(0); }
   src.updateMatrixWorld(true);
   src.traverse((o) => { if (o.isSkinnedMesh) o.skeleton.update(); });
   const box = new THREE.Box3().setFromObject(src, skinned), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+  if (mixer) { mixer.stopAllAction(); mixer.setTime(0); }
   src.position.sub(c);
   const holder = new THREE.Group();
   holder.add(src);
   holder.scale.setScalar(height / (size.y || 1));
   const wrap = new THREE.Group();
   wrap.add(holder);
+  if (mixer) wrap.userData.anim = { mixer, clips }; // (a rigged model: its own animation clips)
   return wrap;
 }
 

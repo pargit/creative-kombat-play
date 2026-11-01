@@ -1,8 +1,8 @@
 // The free arena builder: no AI service, it all runs on the device. Words go in, a detailed arena recipe
 // (a painted floor + a list of objects, the same data the paid AI writes: see scene.js) comes out.
 //
-// It knows famous places (a wizard castle, a superhero tower, Paris, the pyramids, Rome...), kinds of places (forest, city,
-// beach, classroom, stadium...), country flags, and times and weather. Anything it doesn't know is built from the words it
+// It knows six kinds of castle, famous places (Paris, the pyramids, Rome...), kinds of places (forest, city, beach,
+// classroom, stadium...), country flags, and times and weather. Every arena is dressed with floor detail and layers of scenery. Anything it doesn't know is built from the words it
 // does know and the reply says what was left out. The paid AI is for places that aren't in the list.
 //
 // The world: the fight is around x -9…9, z 0. Behind the fighters is -z; the sides are |x| > 13. See scene.js.
@@ -61,20 +61,42 @@ function flagArena(key, mods) {
 
 // ── places ──────────────────────────────────────────────────────────────────────────────
 const PLACES = [
-  { id: 'wizard', name: 'Wizard Castle', re: /\b(hogwarts|wizard(ing)? (school|castle|academy)|magic(al)? (school|castle|academy)|school of (magic|witchcraft)|harry potter|witch castle)\b/,
+  // ── castles: six kinds, each with its own shape, ground, sky and mood ──
+  { id: 'wizard', name: 'Wizard Castle', re: /\b(wizard(ing)? (school|castle|academy|tower)|magic(al)? (school|academy)|school of (magic|witchcraft)|witch'?s? (castle|tower)|sorcerer'?s? (castle|tower))\b/,
     ground: 'stone', sky: 'night', weather: 'fog', accent: '#d4af37', floorColor: '#4b4b55',
-    floor: [oval(50, 60, 46, 70, { stroke: '#d4af37', lw: 0.7 }), oval(50, 60, 30, 46, { stroke: '#7a6ad8', lw: 0.5, alpha: 0.8 }), noise(0.4)],
+    floor: [rect(44, 18, 12, 50, '#5a5a66', { alpha: 0.8 }), oval(50, 60, 46, 70, { stroke: '#d4af37', lw: 0.7 }), oval(50, 60, 30, 46, { stroke: '#7a6ad8', lw: 0.5, alpha: 0.8 }), noise(0.4)],
     objects: [o('landmark', 0, -44, { k: 'castle', c: '#5d5d6c', c2: '#243a64', s: 1.1 }), ...sides('pine', 16, -12, 5, 5.5, { h: 7, c: '#1f3b2c', dz: -2 }), ...sides('lamp', 12, -6, 4, 7, { h: 4, c2: '#ffcf6a' }),
-      row('sphere', -14, -10, 6, 5.6, { r: 0.18, y: 6.5, c: '#fff0b0' }), row('sphere', -12, -16, 6, 5, { r: 0.16, y: 9, c: '#fff0b0' }), row('bush', -22, -14, 8, 6, { r: 1, c: '#1f4a2c' }), o('tower', 30, -22, { r: 3, h: 24, c: '#5d5d6c', c2: '#243a64' }), o('tower', -30, -22, { r: 3, h: 20, c: '#5d5d6c', c2: '#243a64' })] },
-  { id: 'hero tower', name: 'Hero Tower', re: /\b(avengers?|stark|tony stark|marvel|superhero(es)?|super hero(es)?|justice league|hero (tower|base|headquarters)|new york)\b/,
+      row('sphere', -14, -10, 6, 5.6, { r: 0.18, y: 6.5, c: '#fff0b0' }), row('sphere', -12, -16, 6, 5, { r: 0.16, y: 9, c: '#fff0b0' }), row('bush', -22, -14, 8, 6, { r: 1, c: '#1f4a2c' }), o('tower', 30, -22, { r: 3, h: 24, c: '#5d5d6c', c2: '#243a64' }), o('tower', -30, -22, { r: 3, h: 20, c: '#5d5d6c', c2: '#243a64' }),
+      ...sides('flagpole', 9, -9, 1, 0, { h: 8, flag: { bands: [B('#243a64'), B('#d4af37')], dir: 'v' } }), ...sides('cone', 19, -8, 2, 3, { r: 0.4, h: 2, c: '#7a6ad8' })] },
+  { id: 'fairy', name: 'Fairytale Castle', re: /\b(fairy ?tale (castle|palace|kingdom)|fairy castle|princess (castle|palace)|magic(al)? (castle|kingdom)|enchanted castle|dream castle|white castle|palace)\b/,
+    ground: 'grass', sky: 'day', weather: 'none', accent: '#ff7aa8', floorColor: '#79ad58',
+    floor: [rect(43, 18, 14, 50, '#e8dcc8', { alpha: 0.9 }), oval(50, 60, 46, 70, { stroke: '#ffffff', lw: 0.7, alpha: 0.8 }), oval(50, 60, 24, 36, { stroke: '#ff7aa8', lw: 0.6 }), noise(0.3)],
+    objects: [o('landmark', 0, -42, { k: 'fairy', c: '#f2eef8', c2: '#6a8ae8', s: 1.1 }), ...sides('tree', 15, -12, 4, 5, { h: 7, c: '#f08aa8', dz: -2 }), ...sides('bush', 11, -6, 4, 3, { r: 0.8, c: '#3f9a4a' }), ...sides('lamp', 12, -6, 3, 8, { h: 3.6, c2: '#fff1c0' }),
+      ...sides('flagpole', 17, -9, 2, 5, { h: 9, flag: { bands: [B('#ff7aa8'), B('#ffffff'), B('#6a8ae8')], dir: 'v' } }), row('sphere', -14, -14, 8, 4, { r: 0.35, c: '#ffd0e8', y: 0.2 }), ...sides('cylinder', 24, -10, 2, 5, { r: 0.5, h: 5, c: '#f2eef8' }), ...sides('cone', 24, -10, 2, 5, { r: 0.8, h: 2, c: '#6a8ae8', y: 5 })] },
+  { id: 'dark castle', name: 'Dark Castle', re: /\b(dark castle|gothic|vampire'?s? castle|haunted castle|evil castle|villain'?s? (castle|lair)|dracula|castle of doom|black castle|spooky castle)\b/,
+    ground: 'stone', sky: 'storm', weather: 'rain', accent: '#9b4dff', floorColor: '#34323a',
+    floor: [rect(44, 18, 12, 50, '#26242c', { alpha: 0.9 }), oval(50, 60, 46, 70, { stroke: '#9b4dff', lw: 0.7 }), oval(50, 60, 28, 44, { stroke: '#5a2a8a', lw: 0.6 }), noise(0.3)],
+    objects: [o('landmark', 0, -42, { k: 'gothic', c: '#3a3844', c2: '#1d1a26', s: 1.1 }), ...sides('tree', 14, -10, 3, 6, { h: 8, c: '#241c20', dz: -2 }), ...sides('lamp', 11, -6, 3, 7, { h: 3.4, c2: '#9bff7a' }), ...sides('box', 18, -8, 3, 4, { w: 1.1, h: 1.5, d: 0.35, c: '#6b6e76', dz: -2 }),
+      o('fence', -20, -6, { w: 12, c: '#222', c2: '#222' }), o('fence', 20, -6, { w: 12, c: '#222', c2: '#222' }), ...sides('cone', 26, -12, 3, 4, { r: 0.5, h: 3, c: '#2a2630' }), ...sides('flagpole', 9, -9, 1, 0, { h: 9, flag: { bands: [B('#3a1a5a'), B('#9b4dff')], dir: 'v' } })] },
+  { id: 'fortress', name: 'Desert Fortress', re: /\b(desert (castle|fort|fortress)|fortress|sand castle|arabian (castle|palace)|sultan'?s? palace|stone fort)\b/,
+    ground: 'sand', sky: 'day', weather: 'none', accent: '#e0a030', floorColor: '#d3b27a',
+    floor: [rect(43, 18, 14, 50, '#b89a62', { alpha: 0.8 }), oval(50, 60, 46, 70, { stroke: '#8a6a3a', lw: 0.7 }), line(0, 90, 100, 86, '#c8a868', 1.2), noise(0.6)],
+    objects: [o('landmark', 0, -40, { k: 'fortress', c: '#d2b27a', c2: '#2f8aa8', s: 1.1 }), ...sides('palm', 15, -10, 3, 5, { h: 7, c: '#3f8a3a', dz: -2 }), ...sides('cylinder', 11, -6, 3, 6, { r: 0.4, h: 2.4, c: '#d8c08a' }), ...sides('lamp', 10, -5, 2, 7, { h: 3.4, c2: '#ff9a3a' }),
+      ...sides('banner', 17, -12, 1, 0, { w: 3, h: 6, y: 2, c: '#2f8aa8', c2: '#f4c542', txt: '' }), ...sides('rock', 23, -8, 3, 6, { r: 1.2, c: '#b8985a' }), ...sides('tent', 26, -14, 1, 0, { w: 6, h: 2.6, d: 5, c: '#2f8aa8', c2: '#f4c542' })] },
+  { id: 'ice castle', name: 'Ice Castle', re: /\b(ice (castle|palace|fortress)|frozen (castle|palace)|snow castle|winter castle)\b/,
+    ground: 'ice', sky: 'dawn', weather: 'snow', accent: '#9fdcff', floorColor: '#c6e6f3',
+    floor: [rect(43, 18, 14, 50, '#e8f6ff', { alpha: 0.8 }), oval(50, 60, 46, 70, { stroke: '#ffffff', lw: 0.8 }), oval(50, 60, 26, 40, { stroke: '#7fc8f0', lw: 0.6 }), noise(0.2)],
+    objects: [o('landmark', 0, -42, { k: 'fairy', c: '#eaf6ff', c2: '#7fc8f0', s: 1.1 }), ...sides('pine', 15, -10, 4, 5, { h: 7, c: '#cfe0e8', dz: -2 }), ...sides('cone', 11, -6, 4, 3, { r: 0.45, h: 2.6, c: '#bfe6ff' }), ...sides('lamp', 12, -6, 2, 8, { h: 3.4, c2: '#bfe6ff' }),
+      ...sides('rock', 22, -9, 3, 5, { r: 1, c: '#dfeef8' }), ...sides('flagpole', 17, -9, 2, 5, { h: 9, flag: { bands: [B('#7fc8f0'), B('#ffffff')], dir: 'v' } })] },
+  { id: 'hero tower', name: 'Hero Tower', re: /\b(superhero(es)?|super hero(es)?|hero (tower|base|headquarters)|tall tower|new york|manhattan)\b/,
     ground: 'concrete', sky: 'sunset', weather: 'none', accent: '#2fa8ff', floorColor: '#4a4e57',
     floor: [oval(50, 60, 40, 64, { stroke: '#2fa8ff', lw: 0.8 }), oval(50, 60, 26, 42, { stroke: '#ffffff', lw: 0.4, alpha: 0.7 }), noise(0.4)],
-    objects: [o('landmark', 0, -34, { k: 'skyscraper', c: '#8e99ab', c2: '#cfe8ff', txt: 'A', s: 1 }), ...sides('building', 24, -26, 4, 11, { w: 8, h: 18, d: 8, c: '#3b4250', c2: '#ffd98a', dz: -3 }), ...sides('building', 18, -42, 3, 14, { w: 9, h: 26, d: 8, c: '#2f3541', c2: '#9fd0ff' }), ...sides('lamp', 14, -6, 3, 8, { h: 4.5, c2: '#fff1c0' }), row('crate', -22, -8, 3, 2, { c: '#6a5a44' })] },
+    objects: [o('landmark', 0, -34, { k: 'skyscraper', c: '#8e99ab', c2: '#cfe8ff', txt: 'H', s: 1 }), ...sides('building', 24, -26, 4, 11, { w: 8, h: 18, d: 8, c: '#3b4250', c2: '#ffd98a', dz: -3 }), ...sides('building', 18, -42, 3, 14, { w: 9, h: 26, d: 8, c: '#2f3541', c2: '#9fd0ff' }), ...sides('lamp', 14, -6, 3, 8, { h: 4.5, c2: '#fff1c0' }), row('crate', -22, -8, 3, 2, { c: '#6a5a44' })] },
   { id: 'eiffel', name: 'Paris', re: /\b(paris|eiffel|parisian)\b/,
     ground: 'stone', sky: 'sunset', weather: 'none', accent: '#f4c542', floorColor: '#a89f8d',
     floor: [oval(50, 62, 46, 74, { stroke: '#7d7466', lw: 0.7 }), line(0, 62, 100, 62, '#8d8473', 0.4), line(50, 20, 50, 100, '#8d8473', 0.4), noise(0.5)],
     objects: [o('landmark', 0, -46, { k: 'eiffel', c: '#4a3f36', s: 1 }), ...sides('tree', 17, -14, 5, 6, { h: 5, c: '#4e8b3e', dz: -1.5 }), ...sides('lamp', 13, -5, 4, 8, { h: 4.5, c2: '#ffe3a0' }), ...sides('bench', 19, -9, 2, 6, { w: 2, c: '#2e5a3a', c2: '#222' }), row('table', -22, -20, 3, 4, { w: 1.2, d: 1.2, c: '#f4f0e6' }), row('chair', -22, -22, 6, 2, { c: '#3a3a3a' }), ...sides('building', 30, -30, 2, 12, { w: 10, h: 14, d: 8, c: '#d8cdb4', c2: '#4a5a6a' })] },
-  { id: 'pyramids', name: 'Pyramids', re: /\b(pyramids?|egypt(ian)?|pharaoh|sphinx|sahara|nile)\b/,
+  { id: 'pyramids', name: 'Pyramids', re: /\b(pyramids?|egypt(ian)?|pharaoh|sphinx|sahara|nile|aztec|mayan?|inca|jungle temple|ancient temple|lost temple)\b/,
     ground: 'sand', sky: 'day', weather: 'none', accent: '#e0b040', floorColor: '#d9bd84',
     floor: [oval(50, 62, 46, 70, { stroke: '#a88a4a', lw: 0.6, alpha: 0.7 }), noise(0.7), line(0, 90, 100, 85, '#c8a868', 1.2)],
     objects: [o('landmark', -4, -52, { k: 'pyramid', c: '#d8b878', c2: '#c8a460', s: 1.5 }), o('landmark', 26, -44, { k: 'pyramid', c: '#d2b070', c2: '#bf9c58', s: 1.0 }), o('landmark', 52, -40, { k: 'pyramid', c: '#d2b070', c2: '#bf9c58', s: 0.7 }),
@@ -109,7 +131,7 @@ const PLACES = [
     ground: 'grass', sky: 'dawn', weather: 'fog', accent: '#b8c0a8', floorColor: '#6a8a4e',
     floor: [oval(50, 62, 44, 70, { stroke: '#8a9a78', lw: 0.6, alpha: 0.7 }), noise(0.5)],
     objects: [o('landmark', 0, -28, { k: 'stonehenge', c: '#8a877e', s: 1 }), ...sides('rock', 17, -8, 3, 5, { r: 1.1, c: '#7d7a72' }), ...sides('pine', 24, -16, 3, 6, { h: 6, c: '#2f5a3a' })] },
-  { id: 'bridge', name: 'Golden Bridge', re: /\b(golden gate|suspension bridge|bridge|san francisco)\b/,
+  { id: 'bridge', indoor: true, name: 'Golden Bridge', re: /\b(golden gate|suspension bridge|bridge|san francisco)\b/,
     ground: 'concrete', sky: 'dawn', weather: 'fog', accent: '#e0502a', floorColor: '#6d6f73',
     floor: [rect(0, 20, 100, 70, '#55595e'), line(0, 56, 100, 56, '#f4c542', 0.5), line(0, 30, 100, 30, '#ffffff', 0.4), line(0, 84, 100, 84, '#ffffff', 0.4), noise(0.5)],
     objects: [o('landmark', 0, -22, { k: 'bridge', c: '#c8362a', c2: '#a02a22', s: 1 }), ...sides('lamp', 14, -6, 4, 6, { h: 4, c2: '#ffe3a0' }), row('wall', 0, -9, 1, 0, { w: 46, h: 1.1, d: 0.6, c: '#888c92' })] },
@@ -117,16 +139,16 @@ const PLACES = [
     ground: 'snow', sky: 'dawn', weather: 'snow', accent: '#9fdcff', floorColor: '#e6eef5',
     floor: [oval(50, 62, 44, 70, { stroke: '#b5cbe0', lw: 0.7 }), noise(0.3)],
     objects: [o('landmark', -20, -22, { k: 'igloo', c: '#f2f8ff', c2: '#c8d8e8', s: 1.2 }), o('landmark', 22, -26, { k: 'igloo', c: '#f2f8ff', c2: '#c8d8e8', s: 1.0 }), ...sides('pine', 28, -14, 3, 5, { h: 6, c: '#3f6a52' }), ...sides('rock', 16, -9, 3, 5, { r: 1, c: '#c8d8e8' }), row('cone', -10, -30, 8, 8, { r: 6, h: 14, c: '#dfe9f2' })] },
-  { id: 'volcano', name: 'Volcano', re: /\b(volcano|volcanic|lava (land|field|world|lake)|magma|inferno|hell|underworld|mordor|mount doom)\b/,
+  { id: 'volcano', name: 'Volcano', re: /\b(volcano|volcanic|lava (land|field|world|lake)|magma|inferno|hell|underworld)\b/,
     ground: 'lava', sky: 'storm', weather: 'embers', accent: '#ff6a1a', floorColor: '#2a1d1a',
     floor: [oval(50, 62, 46, 72, { stroke: '#ff6a1a', lw: 0.7 }), line(10, 30, 36, 50, '#ff6a1a', 0.8), line(90, 28, 66, 52, '#ff6a1a', 0.8), line(20, 90, 44, 78, '#ff6a1a', 0.6), noise(0.3)],
     objects: [o('landmark', 0, -36, { k: 'volcano', c: '#2e2420', c2: '#ff6a1a', s: 1.3 }), ...sides('rock', 16, -9, 4, 6, { r: 1.4, c: '#1f1816' }), ...sides('cone', 24, -16, 3, 7, { r: 1.2, h: 5, c: '#3a2a24' }), ...sides('cone', 20, -6, 2, 5, { r: 0.5, h: 3, c: '#ff6a1a' })] },
-  { id: 'ring', name: 'Boxing Ring', re: /\b(boxing|boxing ring|wrestling|wrestling ring|ufc|mma|octagon|cage fight|fight club|fight night)\b/,
+  { id: 'ring', indoor: true, name: 'Boxing Ring', re: /\b(boxing|boxing ring|wrestling|wrestling ring|mma|octagon|cage fight|fight club|fight night)\b/,
     ground: 'concrete', sky: 'night', weather: 'none', accent: '#d8322a', floorColor: '#2a2a30',
     floor: [rect(22, 30, 56, 62, '#2f5fb8'), frame(22, 30, 56, 62, '#ffffff', 1.2), oval(50, 61, 22, 36, { stroke: '#ffffff', lw: 0.6 }), frame(22, 30, 56, 62, '#d8322a', 0.5, { alpha: 0.9 })],
     objects: [...sides('cylinder', 14, 0, 1, 0, { r: 0.25, h: 2.2, c: '#d8322a' }), ...sides('cylinder', 14, -9, 1, 0, { r: 0.25, h: 2.2, c: '#d8322a' }), o('box', 0, -9, { w: 28, h: 0.07, d: 0.07, c: '#ffffff', y: 0.8 }), o('box', 0, -9, { w: 28, h: 0.07, d: 0.07, c: '#d8322a', y: 1.35 }), o('box', 0, -9, { w: 28, h: 0.07, d: 0.07, c: '#2f5fb8', y: 1.9 }),
       ...sides('chair', 17, -14, 4, 1.6, { c: '#3a3a42', dz: -1.2 }), ...sides('chair', 17, -17, 4, 1.6, { c: '#3a3a42', dz: -1.2 }), o('stage', 0, -26, { w: 36, h: 2, d: 6, c: '#1c1c22', c2: '#ffd23f', txt: 'FIGHT NIGHT' }), ...sides('lamp', 12, -20, 2, 14, { h: 9, c2: '#fff1c0' })] },
-  { id: 'stadium', name: 'Stadium', re: /\b(stadium|football|soccer|pitch|basketball|tennis|sports? (field|arena)|baseball|rugby|olympic|world cup|football field)\b/,
+  { id: 'stadium', indoor: true, name: 'Stadium', re: /\b(stadium|football|soccer|pitch|basketball|tennis|sports? (field|arena)|baseball|rugby|football field)\b/,
     ground: 'grass', sky: 'day', weather: 'none', accent: '#ffffff', floorColor: '#3f8a3a',
     floor: [rect(0, 14, 100, 84, '#3f8a3a'), ...[0, 1, 2, 3, 4].map((i) => rect(i * 20, 14, 10, 84, '#46963f', { alpha: 0.8 })), frame(8, 22, 84, 70, '#ffffff', 0.9), line(50, 22, 50, 92, '#ffffff', 0.9), oval(50, 57, 18, 36, { stroke: '#ffffff', lw: 0.9 }), frame(8, 40, 12, 34, '#ffffff', 0.8), frame(80, 40, 12, 34, '#ffffff', 0.8)],
     objects: [o('box', 0, -34, { w: 80, h: 4, d: 6, c: '#8a8f98' }), o('box', 0, -38, { w: 80, h: 7, d: 6, c: '#7a7f88' }), o('box', 0, -42, { w: 80, h: 10, d: 6, c: '#6a6f78' }), ...[0, 1, 2].map((r) => row('sphere', -36, -33 - r * 4, 24, 3, { r: 0.4, y: 4.4 + r * 3, c: r % 2 ? '#e0233a' : '#2f7fff' })), ...sides('lamp', 34, -26, 1, 0, { h: 18, c2: '#fffbe0' }), o('box', -36, -2, { w: 0.2, h: 2.6, d: 7, c: '#ffffff' }), o('box', 36, -2, { w: 0.2, h: 2.6, d: 7, c: '#ffffff' })] },
@@ -138,10 +160,22 @@ const PLACES = [
     ground: 'stone', sky: 'day', weather: 'none', accent: '#e8a030', floorColor: '#b09a78',
     floor: [oval(50, 62, 40, 62, { stroke: '#8a7458', lw: 0.6 }), noise(0.6)],
     objects: [...[['#d8322a', -20], ['#2f7fff', -30], ['#f4c542', 20], ['#22a55e', 30]].map(([c, x]) => o('tent', x, -12, { w: 6, h: 2.6, d: 4, c, c2: c })), ...sides('table', 20, -10, 2, 10, { w: 2.2, d: 1, c: '#a27a4a' }), ...sides('crate', 24, -8, 3, 1.1, { c: '#a27a4a' }), ...sides('lamp', 14, -6, 3, 9, { h: 4, c2: '#ffe3a0' }), row('building', -42, -24, 4, 18, { w: 12, h: 11, d: 8, c: '#c8a878', c2: '#4a5a6a' })] },
-  { id: 'beach', name: 'Beach', re: /\b(beach|island|tropical|seashore|lagoon|paradise|hawaii|caribbean|palm (trees|island))\b/,
+  { id: 'beach', dressAs: 'beach', name: 'Beach', re: /\b(beach|island|tropical|seashore|lagoon|paradise|hawaii|caribbean|palm (trees|island))\b/,
     ground: 'sand', sky: 'sunset', weather: 'none', accent: '#2fe0ff', floorColor: '#e6d29a',
     floor: [rect(0, 0, 100, 24, '#2a8ac8'), rect(0, 24, 100, 5, '#bfe8f4', { alpha: 0.9 }), oval(50, 66, 30, 40, { stroke: '#cdb878', lw: 0.6, alpha: 0.6 }), noise(0.5)],
     objects: [...sides('palm', 17, -9, 4, 7, { h: 8, c: '#3f8a3a', dz: -2 }), ...sides('rock', 24, -12, 2, 8, { r: 1.2, c: '#8a847a' }), o('cone', -14, -6, { r: 1.4, h: 0.5, c: '#d8322a' }), o('cylinder', -14, -6, { r: 0.05, h: 2.4, c: '#f4f0e6' }), o('cone', 15, -7, { r: 1.5, h: 0.5, c: '#2f7fff' }), o('cylinder', 15, -7, { r: 0.05, h: 2.4, c: '#f4f0e6' }), o('bench', 18, -4, { w: 2, c: '#a27a4a', c2: '#6a4a2a' })] },
+  { id: 'skate', name: 'Skate Park', re: /\b(skate ?park|skate ?board(ing)?|skaters?|half ?pipe|bmx)\b/,
+    ground: 'concrete', sky: 'day', weather: 'none', accent: '#2fe0ff', floorColor: '#8d9199',
+    floor: [oval(50, 62, 44, 70, { stroke: '#f4c542', lw: 0.7 }), line(10, 40, 90, 40, '#d8322a', 0.6), noise(0.5)],
+    objects: [...sides('box', 18, -8, 2, 9, { w: 7, h: 1.4, d: 4, c: '#a9adb5' }), ...sides('cylinder', 14, -6, 2, 9, { r: 0.12, h: 1.1, c: '#d8322a' }), o('box', 0, -14, { w: 24, h: 0.9, d: 5, c: '#9aa0a8' }), o('wall', 0, -28, { w: 60, h: 5, d: 1.5, c: '#6f747c' }), o('sign', 0, -26, { w: 8, h: 2, txt: 'SKATE', c: '#2fe0ff', c2: '#111' }), ...sides('lamp', 22, -10, 2, 8, { h: 6, c2: '#fff1c0' })] },
+  { id: 'swamp', name: 'Swamp', re: /\b(swamp|marsh|bog|mangrove|bayou|wetlands?)\b/,
+    ground: 'grass', sky: 'dawn', weather: 'fog', accent: '#7dff6a', floorColor: '#3d4f2c',
+    floor: [oval(30, 70, 22, 14, { fill: '#2c4a3a', alpha: 0.8 }), oval(70, 64, 26, 16, { fill: '#2c4a3a', alpha: 0.8 }), oval(50, 82, 20, 10, { fill: '#2c4a3a', alpha: 0.7 }), noise(0.6)],
+    objects: [...sides('tree', 14, -6, 4, 5, { h: 9, c: '#33482a', dz: -2.5 }), ...sides('tree', 22, -12, 3, 7, { h: 12, c: '#2a3d24', dz: -3 }), ...sides('bush', 12, -4, 3, 4, { r: 0.8, c: '#3a5a2a' }), ...sides('rock', 20, -7, 2, 6, { r: 0.9, c: '#5a6a4a' }), ...sides('lamp', 17, -8, 1, 0, { h: 3.4, c2: '#9bff7a' })] },
+  { id: 'junkyard', name: 'Junkyard', re: /\b(junk ?yard|scrap ?yard|dump|garbage|landfill|wreckers?)\b/,
+    ground: 'concrete', sky: 'sunset', weather: 'none', accent: '#e8a030', floorColor: '#5a5650',
+    floor: [oval(50, 62, 44, 70, { stroke: '#8a6a3a', lw: 0.6 }), line(10, 70, 90, 74, '#3a3630', 1.4), noise(0.8)],
+    objects: [...sides('crate', 14, -6, 4, 1.6, { c: '#8a6a3a' }), ...sides('cylinder', 20, -8, 3, 2.4, { r: 0.7, h: 1.4, c: '#a02a24' }), ...sides('box', 26, -14, 3, 5, { w: 4, h: 2, d: 2.4, c: '#7a7e86' }), o('wall', 0, -30, { w: 70, h: 5, d: 1.2, c: '#6a6660' }), ...sides('rock', 22, -10, 3, 5, { r: 1.2, c: '#5a5650' }), ...sides('lamp', 12, -6, 1, 0, { h: 6, c2: '#ffcf6a' })] },
   { id: 'forest', name: 'Forest', re: /\b(forest|woods?|jungle|rainforest|woodland|enchanted|fairy ?tale|meadow|park|garden|nature)\b/,
     ground: 'grass', sky: 'day', weather: 'none', accent: '#7dff6a', floorColor: '#547f37',
     floor: [oval(50, 62, 44, 70, { stroke: '#7a8f4a', lw: 0.6, alpha: 0.6 }), oval(50, 60, 20, 30, { fill: '#6a8f45', alpha: 0.5 }), noise(0.6)],
@@ -158,31 +192,31 @@ const PLACES = [
     ground: 'metal', sky: 'sunset', weather: 'none', accent: '#ffb347', floorColor: '#6d747c',
     floor: [oval(50, 60, 40, 64, { stroke: '#ffd23f', lw: 0.8 }), { t: 'text', s: 'H', x: 50, y: 60, size: 22, fill: '#ffd23f' }, frame(6, 20, 88, 74, '#ffffff', 0.5, { alpha: 0.7 }), noise(0.4)],
     objects: [row('building', -52, -34, 7, 17, { w: 9, h: 22, d: 8, c: '#4a4f5a', c2: '#ffd98a' }), row('building', -44, -52, 6, 17, { w: 10, h: 36, d: 8, c: '#3b4250', c2: '#9fd0ff' }), o('fence', -22, -4, { w: 14, c: '#9aa0a8', c2: '#777' }), o('fence', 22, -4, { w: 14, c: '#9aa0a8', c2: '#777' }), ...sides('cylinder', 24, -10, 1, 0, { r: 1.2, h: 2, c: '#8a929c' }), ...sides('lamp', 15, -3, 1, 0, { h: 5, c2: '#fff1c0' })] },
-  { id: 'neon', name: 'Neon City', re: /\b(neon|cyber ?punk|cyber city|arcade|night ?club|club|disco|synthwave|retro ?wave|blade runner|tokyo night)\b/,
+  { id: 'neon', name: 'Neon City', re: /\b(neon|cyber ?punk|cyber city|arcade|night ?club|club|disco|synthwave|retro ?wave|tokyo night)\b/,
     ground: 'metal', sky: 'night', weather: 'rain', accent: '#ff3cac', floorColor: '#25262e',
     floor: [oval(50, 60, 40, 64, { stroke: '#ff3cac', lw: 0.8 }), oval(50, 60, 26, 42, { stroke: '#2fe0ff', lw: 0.7 }), line(0, 40, 100, 40, '#9b4dff', 0.4, ), line(0, 82, 100, 82, '#9b4dff', 0.4), noise(0.3)],
     objects: [...sides('building', 22, -22, 3, 12, { w: 9, h: 20, d: 8, c: '#20222c', c2: '#2fe0ff', dz: -2 }), ...sides('building', 18, -40, 3, 14, { w: 11, h: 34, d: 9, c: '#1a1c26', c2: '#ff3cac' }), o('sign', -18, -9, { w: 5, h: 1.6, txt: 'NEON', c: '#ff3cac', c2: '#ffffff' }), o('sign', 18, -9, { w: 5, h: 1.6, txt: 'BAR', c: '#2fe0ff', c2: '#101018' }), o('banner', -30, -26, { w: 6, h: 8, y: 6, txt: 'GAME', c: '#9b4dff', c2: '#fff' }), ...sides('lamp', 14, -5, 3, 9, { h: 5, c2: '#ff3cac' })] },
-  { id: 'concert', name: 'Concert Stage', re: /\b(concert|stage|rock ?show|festival|theat(er|re)|music hall|talent show|performance)\b/,
+  { id: 'concert', indoor: true, name: 'Concert Stage', re: /\b(concert|stage|rock ?show|festival|theat(er|re)|music hall|talent show|performance)\b/,
     ground: 'wood', sky: 'night', weather: 'none', accent: '#ff3cac', floorColor: '#2a2024',
     floor: [oval(50, 60, 44, 70, { stroke: '#ffd23f', lw: 0.8 }), oval(50, 60, 24, 40, { stroke: '#ff3cac', lw: 0.6 }), ...[0, 1, 2].map((i) => oval(20 + i * 30, 36, 8, 14, { fill: ['#ff3cac', '#2fe0ff', '#ffd23f'][i], alpha: 0.5 })), noise(0.3)],
     objects: [o('stage', 0, -20, { w: 40, h: 1.6, d: 9, c: '#1c1820', c2: '#ffd23f', txt: 'LIVE' }), ...sides('cylinder', 20, -22, 2, 6, { r: 0.5, h: 14, c: '#333' }), ...sides('banner', 28, -16, 1, 0, { w: 4, h: 7, y: 3, txt: 'ROCK', c: '#d8322a', c2: '#fff' }), row('chair', -22, -8, 12, 3.6, { c: '#3a3a42' }), ...sides('lamp', 25, -6, 2, 5, { h: 8, c2: '#ff3cac' })] },
   { id: 'medieval', name: 'Kingdom Castle', re: /\b(castle|medieval|kingdom|knight'?s? (castle|arena|tournament)|fortress|king'?s|joust|tournament|dragon'?s? lair|ruins|ancient ruins)\b/,
     ground: 'stone', sky: 'day', weather: 'none', accent: '#c8302a', floorColor: '#8b8680',
-    floor: [oval(50, 60, 46, 70, { stroke: '#4a4640', lw: 0.8 }), ...[0, 1, 2, 3].map((i) => line(10 + i * 25, 20, 10 + i * 25, 95, '#6a665f', 0.3)), noise(0.6)],
-    objects: [o('landmark', 0, -42, { k: 'castle', c: '#9a958c', c2: '#7a2a2a', s: 1 }), o('wall', 0, -22, { w: 56, h: 5, d: 1.8, c: '#8f8a80' }), ...sides('flagpole', 17, -10, 2, 5, { h: 9, flag: { bands: [B('#a01820'), B('#f4c542')], dir: 'v' } }), ...sides('banner', 26, -12, 1, 0, { w: 3, h: 6, y: 3, c: '#a01820', c2: '#f4c542', txt: '' }), ...sides('tree', 30, -16, 2, 6, { h: 6, c: '#4c8a3a' }), row('rock', -12, -7, 2, 24, { r: 0.9, c: '#7d776f' })] },
+    floor: [rect(44, 18, 12, 50, '#7a766e', { alpha: 0.8 }), oval(50, 60, 46, 70, { stroke: '#4a4640', lw: 0.8 }), ...[0, 1, 2, 3].map((i) => line(10 + i * 25, 20, 10 + i * 25, 95, '#6a665f', 0.3)), noise(0.6)],
+    objects: [o('landmark', 0, -42, { k: 'castle', c: '#9a958c', c2: '#7a2a2a', s: 1 }), o('wall', 0, -22, { w: 44, h: 3.2, d: 1.8, c: '#8f8a80' }), ...sides('flagpole', 17, -10, 2, 5, { h: 9, flag: { bands: [B('#a01820'), B('#f4c542')], dir: 'v' } }), ...sides('banner', 26, -12, 1, 0, { w: 3, h: 6, y: 3, c: '#a01820', c2: '#f4c542', txt: '' }), ...sides('tree', 30, -16, 2, 6, { h: 6, c: '#4c8a3a' }), row('rock', -12, -7, 2, 24, { r: 0.9, c: '#7d776f' }), ...sides('bush', 10, -7, 4, 2.4, { r: 0.7, c: '#2f6a2a' }), ...sides('lamp', 12, -6, 2, 8, { h: 3.4, c2: '#ff9a3a' })] },
   { id: 'cave', name: 'Crystal Cave', re: /\b(cave|cavern|mine|crystal (cave|mine)|grotto|underground|dungeon|catacombs?)\b/,
     ground: 'stone', sky: 'night', weather: 'none', accent: '#9b4dff', floorColor: '#3a3640',
     floor: [oval(50, 60, 44, 70, { stroke: '#9b4dff', lw: 0.6, alpha: 0.8 }), noise(0.4)],
     objects: [row('cone', -48, -34, 9, 12, { r: 5, h: 14, c: '#3b3744' }), ...sides('cone', 16, -8, 5, 5, { r: 0.7, h: 4.5, c: '#9b4dff', dz: -2 }), ...sides('cone', 22, -6, 3, 6, { r: 0.5, h: 3, c: '#2fe0ff', dz: -2 }), ...sides('rock', 14, -4, 3, 4, { r: 1.2, c: '#524c5c' }), ...sides('lamp', 12, -9, 2, 6, { h: 3, c2: '#ffb347' })] },
-  { id: 'school', name: 'Classroom', re: /\b(class ?room|school|lecture hall|university|college|principal'?s office)\b/,
+  { id: 'school', indoor: true, name: 'Classroom', re: /\b(class ?room|school|lecture hall|university|college|principal'?s office)\b/,
     ground: 'wood', sky: 'day', weather: 'none', accent: '#2f7fff', floorColor: '#b8905a',
     floor: [...[0, 1, 2, 3, 4, 5].map((i) => line(i * 20, 18, i * 20, 96, '#9a7440', 0.3)), oval(50, 60, 40, 64, { stroke: '#2f7fff', lw: 0.6, alpha: 0.7 })],
     objects: [o('wall', 0, -22, { w: 64, h: 7, d: 0.8, c: '#e8e2d0' }), o('sign', 0, -20, { w: 10, h: 4, txt: 'CLASS', c: '#1f4a35', c2: '#f4f0e6' }), ...sides('table', 16, -10, 3, 4.5, { w: 1.4, d: 0.8, c: '#a27a4a', dz: -1.5 }), ...sides('chair', 16, -11.5, 3, 4.5, { c: '#2f7fff', dz: -1.5 }), o('table', 0, -18, { w: 3, d: 1.2, c: '#6b4a2e' }), o('box', -26, -21, { w: 3, h: 6, d: 1.5, c: '#8a5a32' }), o('box', 26, -21, { w: 3, h: 6, d: 1.5, c: '#8a5a32' })] },
-  { id: 'library', name: 'Library', re: /\b(library|bookshop|bookstore|study hall|archive|old study)\b/,
+  { id: 'library', indoor: true, name: 'Library', re: /\b(library|bookshop|bookstore|study hall|archive|old study)\b/,
     ground: 'wood', sky: 'dawn', weather: 'none', accent: '#c8902a', floorColor: '#6a4a30',
     floor: [oval(50, 60, 42, 66, { stroke: '#c8902a', lw: 0.7 }), rect(30, 40, 40, 40, '#8a2a2a', { alpha: 0.5 }), noise(0.3)],
     objects: [o('wall', 0, -22, { w: 64, h: 9, d: 1, c: '#5a3a22' }), row('box', -28, -20.8, 10, 6, { w: 3.6, h: 8, d: 0.8, c: '#7a4a28' }), row('box', -28, -20.2, 10, 6, { w: 3.3, h: 0.6, d: 0.3, c: '#c8302a', y: 2 }), row('box', -28, -20.2, 10, 6, { w: 3.3, h: 0.6, d: 0.3, c: '#2f7fff', y: 4.5 }), ...sides('table', 18, -9, 2, 6, { w: 3, d: 1.2, c: '#6b4a2e' }), ...sides('chair', 18, -11, 2, 6, { c: '#4a2a1a' }), ...sides('lamp', 14, -6, 2, 9, { h: 3, c2: '#ffcf6a' })] },
-  { id: 'house', name: 'Living Room', re: /\b(living ?room|house|home|kitchen|bedroom|apartment|garage|basement|mansion|office)\b/,
+  { id: 'house', indoor: true, name: 'Living Room', re: /\b(living ?room|house|home|kitchen|bedroom|apartment|garage|basement|mansion|office)\b/,
     ground: 'wood', sky: 'day', weather: 'none', accent: '#e8a030', floorColor: '#9a7048',
     floor: [rect(26, 36, 48, 46, '#b03a3a', { alpha: 0.85 }), frame(26, 36, 48, 46, '#f4c542', 0.5), oval(50, 59, 24, 36, { stroke: '#f4c542', lw: 0.4 }), ...[0, 1, 2, 3, 4, 5].map((i) => line(i * 20, 18, i * 20, 96, '#7a5632', 0.3))],
     objects: [o('wall', 0, -22, { w: 64, h: 8, d: 0.8, c: '#e8dcc0' }), o('box', 0, -20, { w: 7, h: 1.2, d: 2.6, c: '#5a6a8a' }), o('box', 0, -21, { w: 7, h: 1.2, d: 0.6, c: '#4a5a7a', y: 1.2 }), ...sides('box', 14, -14, 1, 0, { w: 3.5, h: 2.4, d: 1, c: '#6b4a2e' }), ...sides('table', 20, -8, 1, 0, { w: 2.2, d: 1.2, c: '#a27a4a' }), ...sides('lamp', 11, -20, 1, 0, { h: 3.4, c2: '#ffe3a0' }), ...sides('chair', 17, -12, 2, 4, { c: '#8a3a3a' }), o('banner', 20, -21, { w: 4, h: 3, y: 2.5, c: '#2f7fff', c2: '#fff', txt: '' })] },
@@ -194,7 +228,7 @@ const PLACES = [
     ground: 'sand', sky: 'sunset', weather: 'none', accent: '#d8322a', floorColor: '#caa86a',
     floor: [oval(50, 60, 48, 76, { fill: '#d8322a', alpha: 0.5 }), oval(50, 60, 48, 76, { stroke: '#ffffff', lw: 1 }), oval(50, 60, 30, 48, { stroke: '#ffd23f', lw: 0.8 }), noise(0.3)],
     objects: [o('tent', 0, -26, { w: 20, h: 9, d: 14, c: '#d8322a', c2: '#ffffff' }), ...sides('tent', 24, -16, 2, 9, { w: 7, h: 4, d: 6, c: '#2f7fff', c2: '#ffd23f' }), ...sides('flagpole', 16, -12, 2, 6, { h: 8, flag: { bands: [B('#d8322a'), B('#ffffff'), B('#2f7fff')], dir: 'v' } }), ...sides('sphere', 28, -8, 3, 3, { r: 0.8, c: '#ff4fa8', y: 1.4 }), o('sign', -16, -8, { w: 4, h: 1.6, txt: 'CIRCUS', c: '#ffd23f', c2: '#d8322a' })] },
-  { id: 'sea', name: 'Underwater', re: /\b(underwater|under the sea|ocean floor|sea ?bed|aquarium|coral reef|reef|atlantis|deep sea)\b/,
+  { id: 'sea', dressAs: 'sea', name: 'Underwater', re: /\b(underwater|under the sea|ocean floor|sea ?bed|aquarium|coral reef|reef|atlantis|deep sea)\b/,
     ground: 'sand', sky: 'dawn', weather: 'none', accent: '#2fe0ff', floorColor: '#c8b888',
     floor: [oval(50, 60, 44, 70, { stroke: '#2fe0ff', lw: 0.5, alpha: 0.6 }), ...[0, 1, 2, 3, 4].map((i) => oval(10 + i * 20, 30 + (i % 2) * 40, 12, 8, { fill: '#e8d8a0', alpha: 0.4 })), noise(0.6)],
     objects: [...sides('cone', 16, -8, 4, 4, { r: 0.7, h: 3.2, c: '#ff6a8a', dz: -2 }), ...sides('cone', 22, -6, 3, 5, { r: 0.6, h: 2.6, c: '#ffb347', dz: -2 }), ...sides('cylinder', 14, -5, 3, 3, { r: 0.12, h: 4, c: '#2fa85a', dz: -3 }), ...sides('rock', 26, -10, 3, 6, { r: 1.6, c: '#6a7a8a' }), o('dome', 0, -30, { r: 12, c: '#2f8ac8' }), row('sphere', -20, -12, 6, 7, { r: 0.35, y: 5, c: '#d8f4ff' })] },
@@ -249,6 +283,96 @@ export function fitView(objs) {
   });
 }
 
+// ── detail: every arena gets a textured floor and layers of scenery (near, middle, far) so none of them looks bare ──
+const rand = (seed) => { let s = 2166136261; for (const ch of String(seed)) s = Math.imul(s ^ ch.charCodeAt(0), 16777619) >>> 0; return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296); };
+const hwAt = (z) => 0.58 * (11 - z); // how far to each side the fight camera sees at depth z
+function floorDetail(ground, c0, R) {
+  const c = /^#[0-9a-f]{6}$/i.test(c0) ? c0 : '#888888', lo = (k = 0.82) => shadeHex(c, k), hi = (k = 1.18) => shadeHex(c, k), f = [];
+  const at = (a, b) => a + R() * (b - a), spots = (n, fn) => { for (let i = 0; i < n; i++) f.push(fn(i)); };
+  const grid = (xs, ys, k = 0.7, a = 0.35, lw = 0.22) => { for (const x of xs) f.push({ ...line(x, 18, x, 98, lo(k), lw), alpha: a }); for (const y of ys) f.push({ ...line(0, y, 100, y, lo(k), lw), alpha: a }); };
+  const crack = (col, a = 0.6, lw = 0.3) => { const x = at(10, 80), y = at(30, 90); return { ...line(x, y, x + at(5, 14), y + at(-6, 6), col, lw), alpha: a }; };
+  switch (ground) {
+    case 'grass':
+      spots(9, (i) => oval(at(6, 94), at(26, 96), at(10, 22), at(6, 12), { fill: i % 2 ? hi(1.12) : lo(0.86), alpha: 0.32 }));
+      spots(14, (i) => oval(at(4, 96), at(24, 97), 0.9, 1.6, { fill: ['#ffe36a', '#ff9ac8', '#ffffff'][i % 3], alpha: 0.9 }));
+      spots(8, () => { const x = at(5, 95), y = at(30, 96); return { ...line(x, y, x + at(-2, 2), y - at(2.5, 4.5), lo(0.7), 0.25), alpha: 0.7 }; });
+      break;
+    case 'sand':
+      spots(12, () => { const x = at(2, 80), y = at(24, 96); return { ...line(x, y, x + at(8, 18), y + at(-2, 2), lo(0.9), 0.35), alpha: 0.45 }; });
+      spots(14, () => oval(at(4, 96), at(24, 97), 1, 1.6, { fill: lo(0.72), alpha: 0.6 }));
+      spots(3, () => oval(at(15, 85), at(35, 92), at(14, 24), at(6, 10), { fill: lo(0.9), alpha: 0.25 }));
+      break;
+    case 'stone':
+      grid([12.5, 25, 37.5, 50, 62.5, 75, 87.5], [30, 42, 54, 66, 78, 90]);
+      spots(8, () => rect(Math.floor(at(0, 7)) * 12.5, 18 + Math.floor(at(0, 6)) * 12, 12.5, 12, hi(1.12), { alpha: 0.25 }));
+      spots(3, () => crack(lo(0.55)));
+      break;
+    case 'wood':
+      for (let y = 21; y < 98; y += 5.4) f.push({ ...line(0, y, 100, y, lo(0.7), 0.25), alpha: 0.45 });
+      spots(10, (i) => { const y = 21 + (i % 14) * 5.4, x = at(5, 95); return { ...line(x, y, x, y + 5.4, lo(0.65), 0.22), alpha: 0.5 }; });
+      spots(5, () => oval(at(5, 95), at(24, 96), 1.2, 1.8, { fill: lo(0.6), alpha: 0.4 }));
+      break;
+    case 'metal':
+      grid([16.7, 33.3, 50, 66.7, 83.3], [32, 46, 60, 74, 88], 0.6, 0.6, 0.25);
+      spots(10, (i) => oval(3 + (i % 5) * 23, i < 5 ? 21 : 95, 1, 1.6, { fill: hi(1.25), alpha: 0.7 }));
+      spots(4, () => rect(at(2, 70), at(22, 80), 16.7, 14, lo(0.85), { alpha: 0.4 }));
+      f.push(frame(2, 18, 96, 78, '#e0b020', 0.3, { alpha: 0.35 }));
+      break;
+    case 'snow': case 'ice':
+      spots(10, (i) => oval(at(6, 94), at(26, 96), at(10, 24), at(6, 12), { fill: i % 2 ? '#ffffff' : (ground === 'ice' ? '#a9d4e6' : '#d5e3ee'), alpha: 0.4 }));
+      spots(6, () => oval(at(5, 95), at(26, 96), 1, 1.5, { fill: lo(0.85), alpha: 0.5 }));
+      spots(3, () => crack('#8fb4cc', 0.7));
+      break;
+    case 'lava':
+      spots(6, () => oval(at(8, 92), at(26, 96), at(8, 18), at(5, 10), { fill: '#ff6a1a', alpha: 0.3 }));
+      spots(8, () => { const x = at(4, 90), y = at(26, 96); return { ...line(x, y, x + at(6, 16), y + at(-7, 7), '#ff6a1a', 0.5), alpha: 0.85 }; });
+      spots(6, () => oval(at(5, 95), at(24, 96), at(6, 14), at(4, 8), { fill: lo(0.6), alpha: 0.4 }));
+      break;
+    default: // concrete
+      grid([14, 28, 42, 57, 71, 85], [32, 46, 60, 74, 88], 0.7, 0.45, 0.2);
+      spots(4, () => crack(lo(0.5)));
+      spots(4, () => oval(at(10, 90), at(28, 94), at(8, 16), at(5, 9), { fill: lo(0.8), alpha: 0.25 }));
+      spots(4, () => rect(at(2, 80), at(22, 82), at(8, 16), at(8, 14), hi(1.1), { alpha: 0.2 }));
+  }
+  return f;
+}
+function dress(a) {
+  const G = GROUNDS[a.ground] ? a.ground : 'concrete', R = rand(a.name + G), objs = a.objects, dark = a.sky === 'night' || a.sky === 'space' || a.sky === 'storm';
+  const count = (t) => objs.filter((x) => x.t === t).length;
+  const big = objs.some((x) => x.z <= -20 && Math.abs(x.x) < 20 && ['landmark', 'building', 'wall', 'dome', 'tent', 'stage', 'tower'].includes(x.t));
+  // a row spread across the whole picture at depth z (if something big stands at the back in the middle, the row keeps to the two sides)
+  const far = (t, z, dx, p = {}, off = 0) => {
+    const w = hwAt(z) * 0.88;
+    if (big && z <= -12) { const gap = 0.45 * hwAt(z) + 4 + off, k = Math.floor((w - gap) / dx) + 1; return k > 0 ? sides(t, gap, z, Math.min(k, 14), dx, p) : []; }
+    const n = Math.min(30, Math.floor((2 * w) / dx) + 1);
+    return [row(t, -((n - 1) * dx) / 2 + off, z, n, dx, p)];
+  };
+  const mixed = (t, z, dx, A, B) => [...far(t, z, dx * 2, A), ...far(t, z - 1, dx * 2, B, dx)];
+  const accent = a.accent || '#2fe0ff';
+  let s = [];
+  switch (a.dressAs || (a.indoor ? 'none' : G)) {
+    case 'none': break;
+    case 'beach': s = [o('box', 0, -44, { w: 150, h: 0.05, d: 56, c: '#2a8ac8' }), o('box', 0, -16.4, { w: 150, h: 0.07, d: 1.4, c: '#e8f6ff' }), ...far('rock', -7, 5.5, { r: 0.5, c: '#8a847a' }, 2), ...far('sphere', -6.5, 2.2, { r: 0.1, c: '#fff0e8' }, 0.7), ...mixed('palm', -12, 5, { h: 8, c: '#3f8a3a' }, { h: 6.5, c: '#4c9a42' }),
+      o('cone', -22, -30, { r: 0.9, h: 3.4, c: '#ffffff' }), o('box', -22, -30, { w: 3, h: 0.5, d: 1, c: '#8a5a32' }), o('cone', 15, -40, { r: 1.2, h: 4.5, c: '#ffffff' }), o('box', 15, -40, { w: 3.6, h: 0.6, d: 1.2, c: '#a02a24' }), ...far('cone', -62, 18, { r: 12, h: 8, c: '#6a8a9a' })]; break;
+    case 'sea': s = [...far('cylinder', -7, 3.2, { r: 0.1, h: 3.5, c: '#2fa85a' }), ...far('cylinder', -8, 3.7, { r: 0.1, h: 5, c: '#22a55e' }, 1.5), ...far('cone', -9, 5, { r: 0.7, h: 2.2, c: '#ff6a8a' }, 1), ...far('sphere', -6, 3.5, { r: 0.13, c: '#d8f4ff', y: 3 }, 1.7), ...far('sphere', -10, 4.5, { r: 0.18, c: '#d8f4ff', y: 5 }, 2),
+      ...mixed('cylinder', -16, 3.4, { r: 0.18, h: 7, c: '#2fa85a' }, { r: 0.15, h: 5, c: '#22a55e' }), ...far('rock', -20, 7, { r: 2, c: '#6a7a8a' }, 2), ...far('cone', -34, 7, { r: 2, h: 7, c: '#ff8a5a' }), ...far('cone', -52, 14, { r: 15, h: 14, c: '#2a6a9a' })]; break;
+    case 'grass': s = [...far('bush', -6, 3.4, { r: 0.7, c: '#2f6a2a' }), ...far('sphere', -8, 1.7, { r: 0.14, c: '#ff9ac8' }), ...far('sphere', -9, 1.9, { r: 0.14, c: '#ffe36a' }, 0.8), ...far('rock', -7.5, 5.5, { r: 0.5, c: '#7d776f' }, 2),
+      ...mixed('tree', -15, 3.2, { h: 8, c: '#3f7a30' }, { h: 6.5, c: '#4c8a3a' }), ...mixed('tree', -24, 4, { h: 11, c: '#356a2a' }, { h: 9, c: '#3f7a30' }), ...mixed('tree', -36, 5, { h: 14, c: '#2f6a2a' }, { h: 11, c: '#356a2a' }), ...far('cone', -60, 14, { r: 14, h: 11, c: '#5f8f4a' })]; break;
+    case 'sand': s = [...mixed('rock', -6.5, 3, { r: 0.6, c: '#b89860' }, { r: 0.4, c: '#a8764a' }), ...far('bush', -8, 4.5, { r: 0.5, c: '#9a8a4a' }), ...far('cone', -24, 8, { r: 8, h: 3.5, c: '#cdb37c' }), ...far('rock', -18, 9, { r: 2, c: '#a8764a' }, 3),
+      ...far('cone', -38, 10, { r: 11, h: 5, c: '#c8a868' }), ...far('cone', -58, 16, { r: 17, h: 9, c: '#bf9c58' })]; break;
+    case 'stone': s = [...far('rock', -7, 4.2, { r: 0.55, c: '#7d776f' }), ...far('cylinder', -12, 5.5, { r: 0.5, h: 4, c: '#bdb8ae' }), ...far('cylinder', -13, 5.5, { r: 0.55, h: 1.5, c: '#a9a49a' }, 2.75), ...far('lamp', -9, 5, { h: 3.2, c2: '#ffb347' }, 2),
+      ...mixed('pine', -26, 4.4, { h: 9, c: '#2f5a3a' }, { h: 7, c: '#3a6a46' }), ...far('cone', -48, 16, { r: 14, h: 18, c: '#6f7a86' }), ...far('cone', -64, 14, { r: 13, h: 26, c: '#e0e6ee' }, 7)]; break;
+    case 'wood': s = [...far('cylinder', -8, 5, { r: 0.42, h: 1, c: '#5a3a1a' }), ...far('crate', -6.5, 7, { c: '#a27a4a' }, 3), ...far('lamp', -12, 5.5, { h: 3.6, c2: '#ffcf6a' }, 2)]; break;
+    case 'metal': s = [...far('box', -7, 5.5, { w: 2, h: 1.1, d: 1.2, c: '#6a727c' }), ...far('cylinder', -11, 6, { r: 0.3, h: 3.2, c: '#8a929c' }, 2), ...far('lamp', -9, 6, { h: 3.5, c2: accent }, 3), ...far('cylinder', -22, 8, { r: 1.8, h: 8, c: '#7d858f' }), ...far('cylinder', -36, 12, { r: 2.6, h: 14, c: '#6a727c' }, 4)]; break;
+    case 'snow': case 'ice': s = [...far('rock', -6, 5, { r: 0.6, c: '#dfe9f2' }), ...far('pine', -9, 6.5, { h: 4.5, c: '#cfe0e8' }, 2), ...mixed('pine', -18, 3.4, { h: 8, c: '#3f6a52' }, { h: 6, c: '#4a7a60' }), ...mixed('pine', -30, 4.6, { h: 11, c: '#355f48' }, { h: 9, c: '#3f6a52' }), ...far('cone', -46, 14, { r: 13, h: 20, c: '#dfe9f2' }), ...far('cone', -62, 17, { r: 15, h: 30, c: '#c8d8e8' }, 8)]; break;
+    case 'lava': s = [...far('rock', -6, 4.2, { r: 0.8, c: '#1f1816' }), ...far('cone', -8, 3.4, { r: 0.35, h: 1.6, c: '#ff6a1a' }, 1.5), ...far('cone', -16, 5.5, { r: 1.2, h: 5, c: '#3a2a24' }), ...far('cone', -30, 8, { r: 3.5, h: 10, c: '#2a1d1a' }), ...far('cone', -44, 12, { r: 0.9, h: 3, c: '#ff6a1a' }, 3), ...far('cone', -48, 15, { r: 13, h: 22, c: '#2e2420' })]; break;
+    default: s = [...far('box', -5.5, 6.5, { w: 3, h: 0.9, d: 0.8, c: '#d8a02a' }), ...far('lamp', -9, 6, { h: 5, c2: '#fff1c0' }, 3), ...far('cylinder', -7.5, 4, { r: 0.2, h: 0.9, c: '#d8322a' }, 1),
+      ...(count('building') >= 2 ? [] : [...far('building', -34, 11, { w: 9, h: 20, d: 8, c: dark ? '#1a1c26' : '#8c95a0', c2: dark ? '#ffd98a' : '#cfe3f2' }), ...far('building', -48, 11, { w: 10, h: 34, d: 9, c: dark ? '#14161e' : '#78818c', windows: false }, 5)])];
+  }
+  const floorOps = Math.max(0, 58 - a.floor.length);
+  return { floor: [...floorDetail(G, a.floorColor, R).slice(0, floorOps), ...a.floor], objects: [...objs, ...s] };
+}
+
 // ── the whole thing: words → an arena ──────────────────────────────────────────────────────
 // Returns { name, ground, sky, weather, accent, props, scene, matched, left } (matched: what was understood, left: not)
 const STOP = /^(a|an|the|with|and|at|in|on|of|some|lots|lot|full|very|big|small|place|arena|my|me|i|want|make|build|please|like|that|is|it|to|for|has|have|get|give|set|add|more|really|just|where|there|near|by|from|into|inside|around|huge|giant|large|tiny|a few)$/;
@@ -263,9 +387,20 @@ function fresh(text, nameHint) {
     // the place named first in the words is the main one; a second place only adds its sky/ground if the first has none
     hits.sort((a, b) => t.search(a.re) - t.search(b.re));
     if (hits.length) {
-      const p = hits[0];
-      base = { name: p.name, ground: p.ground, sky: p.sky, weather: p.weather, accent: p.accent, floorColor: p.floorColor, floor: [...p.floor], objects: [...p.objects] };
-      matched.push(p.name.toLowerCase());
+      // two places in the words ("a castle on a beach", "a volcano with a lighthouse"): the one that is only ground and mood is the
+      // setting, and the landmarks of the others are built into it
+      const isLm = (p) => p.id !== 'space' && p.objects.some((x) => x.t === 'landmark');
+      const p = hits.find((h) => !isLm(h) && !h.indoor) || hits[0];
+      const lms = p.indoor ? [] : hits.filter((h) => h !== p && isLm(h)).slice(0, 1);
+      const lmObjs = lms.map((h, i) => {
+        const l = h.objects.find((x) => x.t === 'landmark'), centre = i === 0 && !isLm(p);
+        return centre ? l : { ...l, x: i === 0 ? -26 : 26, s: (l.s || 1) * 0.8 };
+      });
+      base = { indoor: p.indoor, dressAs: p.dressAs, name: lms.length ? `${p.name} + ${lms[0].name}` : p.name, ground: p.ground, sky: p.sky, weather: p.weather, accent: p.accent, floorColor: p.floorColor, floor: [...p.floor], objects: [...p.objects, ...lmObjs] };
+      matched.push(p.name.toLowerCase(), ...lms.map((h) => h.name.toLowerCase()));
+      // things asked for by name that the place does not have yet (trees, rocks, lamps, mountains...)
+      const d = describeArena(t), TYPE = { trees: 'tree', pines: 'pine', palms: 'palm', rocks: 'rock', mountains: 'cone', buildings: 'building', lamps: 'lamp', lanterns: 'lamp', crates: 'crate', pillars: 'cylinder', crystals: 'cone' };
+      if (d.props.join() !== 'rocks,trees') for (const pr of d.props) if (PROP_OBJ[pr] && TYPE[pr] && t.includes(TYPE[pr] === 'cone' ? (pr === 'crystals' ? 'crystal' : 'mountain') : TYPE[pr] === 'cylinder' ? 'pillar' : TYPE[pr]) && !base.objects.some((x) => x.t === TYPE[pr])) { base.objects.push(...PROP_OBJ[pr](accentWord)); matched.push(pr); }
     }
   }
   if (!base) {
@@ -287,6 +422,7 @@ function fresh(text, nameHint) {
   const left = out.guess ? words.filter((w) => w.length > 3).slice(0, 4) : [];
   if (nameHint) out.name = nameHint;
   out.name = String(out.name).slice(0, 24);
+  if (!flagKey) { const d = dress(out); out.floor = d.floor; out.objects = d.objects; }
   out.props = [];
   out.scene = { floorColor: out.floorColor, floor: out.floor, objects: fitView(out.objects) };
   return { name: out.name, ground: out.ground, sky: out.sky, weather: out.weather, accent: out.accent, props: [], scene: out.scene, matched, left, guess: !!out.guess };
@@ -314,7 +450,7 @@ const THINGS = [
   [/\b(walls?)\b/, ['wall'], () => ({ t: 'wall', w: 30, h: 4, d: 1.5, c: '#8f8a80' })], [/\b(pillars?|columns?)\b/, ['cylinder'], () => ({ t: 'cylinder', r: 0.55, h: 5, c: '#d8d0c0' })],
   [/\b(signs?)\b/, ['sign'], () => ({ t: 'sign', w: 4, h: 1.4, txt: 'FIGHT', c: '#d8322a', c2: '#ffffff' })], [/\b(mountains?|hills?)\b/, ['cone'], () => ({ t: 'cone', r: 9, h: 16, c: '#6f7a86' })],
 ];
-const LANDMARK_WORDS = /\b(castle|tower|skyscraper|eiffel|pyramids?|pagoda|lighthouse|windmill|planet|colosseum|ship|igloo|stonehenge|bridge|volcano|landmark|building in the back)\b/;
+const LANDMARK_WORDS = /\b(castle|fortress|palace|tower|skyscraper|eiffel|pyramids?|pagoda|lighthouse|windmill|planet|colosseum|ship|igloo|stonehenge|bridge|volcano|landmark|building in the back)\b/;
 const shadeHex = (c, f) => { const n = parseInt(c.slice(1), 16); return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.max(0, Math.min(255, Math.round(v * f))).toString(16).padStart(2, '0')).join(''); };
 export function tweakArena(cfg, text) {
   const t = String(text || '').toLowerCase(), sc = JSON.parse(JSON.stringify(cfg.scene || { floorColor: '', floor: [], objects: [] }));
@@ -341,7 +477,7 @@ export function tweakArena(cfg, text) {
     if (sc.objects.length !== before || want(/\b(less|fewer)\b/)) said.push(want(/\b(less|fewer)\b/) ? 'fewer of them' : 'removed');
   } else if (want(/\b(add|more|another|extra|some|put|plus|with|lots of|many)\b/) && thing) {
     const k = want(/\b(lots|many|loads)\b/) ? 10 : 6;
-    if (sc.objects.length >= 38) said.push('the arena is full, remove something first');
+    if (sc.objects.length >= 76) said.push('the arena is full, remove something first');
     else {
       const make = thing[2](), c = color || make.c;
       if (color && make.c) make.c = color;
@@ -363,10 +499,14 @@ export function tweakArena(cfg, text) {
 // ── the list shown in the arena designer: tap one to write it in the description ────────────
 const g = (title, note, items) => ({ title, note, items: items.map(([name, also, say]) => ({ name, also, say: say || name.toLowerCase() })) });
 export const ARENA_LIST = [
-  g('Famous places', 'Real landmarks, built so you can tell what they are.', [
-    ['Wizard castle', 'hogwarts, magic school', 'a wizard castle at night'], ['Hero tower', 'avengers tower, marvel, new york', 'the avengers tower at sunset'], ['Paris', 'eiffel tower', 'paris with the eiffel tower'], ['Pyramids', 'egypt, sphinx, pharaoh', 'the egyptian pyramids'],
-    ['Colosseum', 'rome, gladiators', 'a roman colosseum'], ['Japanese dojo', 'pagoda, samurai, temple', 'a japanese dojo with a pagoda'], ['Lighthouse', 'harbour, pier, coast', 'a lighthouse by the sea at sunset'], ['Windmill farm', 'barn, ranch, countryside', 'a farm with a windmill'],
-    ['Stonehenge', 'stone circle, druids', 'stonehenge in the fog'], ['Golden bridge', 'golden gate, san francisco', 'a golden gate bridge'], ['Kingdom castle', 'medieval, fortress, ruins', 'a medieval castle'],
+  g('Castles', 'Six kinds, each with its own shape and mood.', [
+    ['Kingdom castle', 'medieval, knights, ruins', 'a medieval castle'], ['Wizard castle', 'magic school, witch tower', 'a wizard castle at night'], ['Fairytale castle', 'princess, palace, enchanted', 'a fairytale castle'],
+    ['Dark castle', 'gothic, haunted, vampire', 'a dark castle in a storm'], ['Desert fortress', 'sand castle, fort, sultan palace', 'a desert fortress'], ['Ice castle', 'frozen palace, snow castle', 'an ice castle'],
+  ]),
+  g('Famous places', 'Landmarks, built so you can tell what they are.', [
+    ['Hero tower', 'superhero base, new york', 'a superhero tower at sunset'], ['Paris', 'eiffel tower', 'paris with the eiffel tower'], ['Pyramids', 'egypt, sphinx, pharaoh', 'the egyptian pyramids'], ['Colosseum', 'rome, gladiators', 'a roman colosseum'],
+    ['Japanese dojo', 'pagoda, samurai, temple', 'a japanese dojo with a pagoda'], ['Lighthouse', 'harbour, pier, coast', 'a lighthouse by the sea at sunset'], ['Windmill farm', 'barn, ranch, countryside', 'a farm with a windmill'],
+    ['Stonehenge', 'stone circle, druids', 'stonehenge in the fog'], ['Golden bridge', 'golden gate, san francisco', 'a golden gate bridge'],
   ]),
   g('Nature', 'Ground, plants and weather to match.', [
     ['Forest', 'jungle, woods, meadow, park', 'a forest'], ['Beach', 'island, tropical, caribbean', 'a tropical beach at sunset'], ['Desert', 'wild west, canyon, saloon', 'a wild west desert'], ['Mountain top', 'summit, cliffs, alps', 'a mountain top at dawn'],

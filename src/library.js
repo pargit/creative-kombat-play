@@ -1032,7 +1032,7 @@ export const LIBRARY_LIST = [
     it('Rock', 'boulder, stone, meteor, asteroid', 'a giant meteor falls from the sky'), it('Bomb', 'grenade, dynamite', 'a bomb falls from the sky'), it('Rocket', 'missile, torpedo', 'a rocket flies at them'),
   ] },
   { title: 'Effects and moves', note: 'These are built into the game.', items: [
-    { name: 'Fireball', also: 'orb, shuriken, rock, arrow', say: 'throw a fireball' }, { name: 'Beam', also: 'laser, kamehameha', say: 'a laser beam' }, { name: 'Wave', also: 'tsunami, flood, surf', say: 'riding a wave towards them' },
+    { name: 'Fireball', also: 'orb, shuriken, rock, arrow', say: 'throw a fireball' }, { name: 'Beam', also: 'laser', say: 'a laser beam' }, { name: 'Wave', also: 'tsunami, flood, surf', say: 'riding a wave towards them' },
     { name: 'Tornado', also: 'whirlwind, twister', say: 'a tornado grabs them' }, { name: 'Fire pillar', also: 'volcano, geyser', say: 'a volcano erupts under them' }, { name: 'Sword rain', also: '', say: 'swords rain down from the sky' },
     { name: 'Stomp', also: 'giant foot', say: 'a giant foot stomps them' }, { name: 'Cage', also: 'trap, prison', say: 'a cage traps them' }, { name: 'Shadow clones', also: 'copies, army', say: 'shadow clones rush them' },
     { name: 'Earthquake', also: 'crack', say: 'an earthquake cracks the ground' }, { name: 'Teleport', also: 'blink, vanish', say: 'teleport behind them' }, { name: 'Explosion', also: 'blast, nuke, nova', say: 'a huge explosion' }, { name: 'Meteor', also: 'lightning, thunder, airstrike', say: 'lightning strikes from the sky' },

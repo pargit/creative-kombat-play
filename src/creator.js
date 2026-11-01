@@ -11,7 +11,7 @@ import { STEPS, ON_HIT, SHAPES, SOUNDS, MAX_DAMAGE, autoDamage, modelFx, MAX_STE
 import { findThing, LIBRARY_LIST } from './library.js';
 const KNOWS = 'animals (horse, tiger, dragon, eagle, dolphin, shark...), people (knight, wizard, ninja, robot, giant...), weapons and things (sword, spear, anvil, rocket, car, tank...) and effects (fireball, beam, wave, tornado, stomp...)';
 import { GROUNDS, SKIES, WEATHER, PROPS, PRESET_ARENAS, describeArena } from './arenas.js';
-import { libraryArena, tweakArena, ARENA_LIST } from './arena-library.js';
+import { libraryArena, ARENA_LIST } from './arena-library.js';
 
 // model files: what fits
 export const MODEL_LIMIT_MB = 20;      // the most we take
@@ -170,10 +170,70 @@ async function aiDesign(kind, text, btn, say, extra = {}) {
   say(`<span class="bad">${esc(r.error || 'It did not work. Try again.')}</span>`);
   return null;
 }
+// ── a model from one photo (api/photo3d.js: Tripo makes it; it costs AI designs) ──
+const PHOTO = { cost: null, busy: false };
+async function photoCall(data) {
+  const r = await fetch('/api/photo3d', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: session()?.token, ...data }) });
+  return r.json();
+}
+async function photoInfo() {
+  const b = $('#fe-photo'); if (!b) return;
+  if (api.offline?.() || !session()?.token) { $('#fe-photocost').textContent = 'needs an online account'; return; }
+  try { const j = await photoCall({ action: 'info' }); if (j.ok) { PHOTO.cost = j.cost; PHOTO.ready = j.ready; $('#fe-photocost').textContent = j.ready ? (j.cost ? `${j.cost} AI designs` : 'free for admins') : 'not set up on the server yet'; } } catch { /* the button just stays */ }
+}
+// the photo, scaled down to 1024 px on its long side (a small upload, and Tripo needs no more)
+function shrinkPhoto(file) {
+  return new Promise((done, fail) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      const k = Math.min(1, 1024 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); done(c.toDataURL('image/jpeg', 0.9));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); fail(new Error('That picture could not be read.')); };
+    im.src = url;
+  });
+}
+async function photoToModel(file) {
+  if (PHOTO.busy) return;
+  const info = $('#fe-modelinfo'), btn = $('#fe-photo');
+  PHOTO.busy = true; btn.disabled = true;
+  const stop = (html) => { info.innerHTML = html; PHOTO.busy = false; btn.disabled = false; aiCall('credits'); };
+  try {
+    info.textContent = 'Preparing your photo…';
+    const image = await shrinkPhoto(file);
+    const s = await photoCall({ action: 'start', image });
+    if (!s.ok) { if (s.buy) openBuy(); return stop(`<span class="bad">${esc(s.error || 'It did not work. Try again.')}</span>`); }
+    const t0 = Date.now();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 4000));
+      if (Date.now() - t0 > 6 * 60 * 1000) return stop('<span class="bad">The 3D service is taking too long. Wait a few minutes and press SAVE later, or try again. If the model never arrives, your designs stay spent: tell me.</span>');
+      const c = await photoCall({ action: 'check', taskId: s.taskId });
+      if (!c.ok) return stop(`<span class="bad">${esc(c.error || 'It did not work.')}</span>`);
+      if (!c.done) { info.textContent = `Making your 3D model… ${c.progress ? `${Math.round(c.progress)}%` : (c.status === 'queued' ? 'waiting in line' : 'starting')} (about a minute or two)`; continue; }
+      info.textContent = 'Downloading your model…';
+      const g = await fetch(c.url);
+      if (!g.ok) return stop('<span class="bad">The model was made but could not be downloaded. Try the button again in a moment.</span>');
+      const buf = await g.arrayBuffer();
+      photoCall({ action: 'finish', url: c.url });
+      PHOTO.busy = false; btn.disabled = false; aiCall('credits');
+      await takeModel(new File([buf], 'photo-model.glb', { type: 'model/gltf-binary' }));
+      return;
+    }
+  } catch (e) { stop(`<span class="bad">${esc(e.message || 'It did not work. Try again.')}</span>`); }
+}
+// say honestly whether the painted picture reached the game (a picture that can't be loaded leaves the plain sky and floor)
+const loads = (url) => new Promise((done) => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => done(true); im.onerror = () => done(false); im.src = url; });
+async function paintedNote(cfg, what) {
+  if (!cfg.backdrop?.url) return `<span class="warn">The AI answered but sent no picture, so this is still the plain arena.</span> Try again.`;
+  const [bg, fl] = await Promise.all([loads(cfg.backdrop.url), cfg.floor?.url ? loads(cfg.floor.url) : true]);
+  return bg && fl ? `<span class="good">🖼 ${what}:</span> SAVE to keep it. (Hide the menu with LOOK to see it.)` : `<span class="warn">The picture was painted but could not be loaded here (${bg ? 'floor' : 'background'}), so you only see the plain sky and floor.</span> Try again; if it keeps happening, tell me.`;
+}
 function buildAiBuy() {
   screen('screen-ai-buy', `
     <h2>✨ AI DESIGNS</h2>
-    <p class="note">The AI designer turns any description, in any language, into a special or an arena: <i>"like Goku's spirit bomb but made of cats"</i>. One design uses one credit. Building it yourself with the parts and FILL IN stays free.</p>
+    <p class="note">The AI designer turns any description, in any language, into a special or an arena: <i>"a giant ball of energy made of cats"</i>. One design uses one credit. Building it yourself with the parts and FILL IN stays free.</p>
     <p class="ai-cr good"></p>
     <ul class="list" id="ai-packs"></ul>
     <p class="note" id="ai-how">🔒 Secure checkout by Lemon Squeezy: Visa, Mastercard, PayPal, Apple Pay, Google Pay. When you've paid, come back and press UPDATE.</p>
@@ -341,6 +401,9 @@ function buildFighterEdit() {
     <div class="box">
       <div class="row"><button class="btn" id="fe-upload" style="flex:1">UPLOAD A 3D MODEL</button><button class="mini ghost" id="fe-nomodel">USE A STICK FIGURE</button>
         <input type="file" id="fe-file" accept=".glb,.gltf,.fbx" hidden></div>
+      <div class="row"><button class="mini ai" id="fe-photo" style="flex:1">📷 MAKE A MODEL FROM A PHOTO</button><span class="note" id="fe-photocost"></span>
+        <input type="file" id="fe-photofile" accept="image/jpeg,image/png" hidden></div>
+      <p class="note">Don't have a model? Give the AI one photo of a person or creature and it makes the 3D model for you. It costs AI designs, and they are spent even if you don't like the result, so use a clear, full-body photo: standing straight, facing the camera, arms a little out, plain background.</p>
       <p class="note">A <b>.glb</b> file (or .gltf / .fbx) of a person or creature standing up, facing you, arms a little out. <b>Up to ${MODEL_LIMIT_MB} MB; under ${MODEL_GOOD_MB} MB runs smoothly on phones.</b> <a href="#" id="fe-howto">How to make one, and how to make it smaller</a></p>
       <p class="note" id="fe-modelinfo"></p>
       <canvas class="preview" id="fe-preview"></canvas>
@@ -367,7 +430,7 @@ function buildFighterEdit() {
         <p class="note warn" data-only="paid">Heads up: the AI will not get it 100% perfect every time. Each change you ask the AI for (AI DESIGN again or ✨ AI CHANGE) costs another credit. Test it, and make the changes count: describe the whole thing clearly the first time.</p>
         <div class="row"><label class="f">Special's name<input type="text" id="fe-sname" maxlength="22"></label></div>
         <div id="fe-csum" class="note"></div>
-        <div class="row"><button class="mini" id="fe-cmodel">UPLOAD YOUR OWN 3D MODEL (OPTIONAL)</button><span class="note" id="fe-cmodelinfo"></span></div>
+        <div class="row"><button class="mini" id="fe-cmodel">UPLOAD YOUR OWN 3D MODEL (OPTIONAL)</button><button class="mini ghost" id="fe-cturn">TURN MODEL 90°</button><span class="note" id="fe-cmodelinfo"></span></div>
         <p class="note warn">If you upload a 3D model, say in the description what it is and what it does (for example: "my model is a horse, it gallops at the opponent"), so the game uses your model instead of building one. Upload it first, then press the build button.</p>
       </div>
       <div id="fe-basic" hidden>
@@ -396,6 +459,16 @@ function buildFighterEdit() {
   $('#fe-onhit').innerHTML = Object.entries(ON_HIT).map(([k, v]) => `<button class="chip" data-k="${k}">${esc(v)}</button>`).join('');
   $('#fe-upload').onclick = () => $('#fe-file').click();
   $('#fe-file').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) takeModel(f); };
+  $('#fe-photo').onclick = () => {
+    if (api.offline?.() || !session()?.token) { $('#fe-modelinfo').innerHTML = '<span class="bad">Log in to an online account (ACCOUNT on the title screen) to make a model from a photo.</span>'; return; }
+    if (PHOTO.ready === false) { $('#fe-modelinfo').innerHTML = '<span class="warn">Making a model from a photo is not switched on yet: the server needs its Tripo key (TRIPO_API_KEY).</span>'; return; }
+    if (!confirm(`Make a 3D model from a photo?
+
+This uses ${PHOTO.cost ?? 'several'} AI designs. They are spent even if you do not like the model, so pick a clear photo: the whole body, standing straight, facing the camera, arms a little out, plain background.`)) return;
+    $('#fe-photofile').click();
+  };
+  $('#fe-photofile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) photoToModel(f); };
+  photoInfo();
   $('#fe-nomodel').onclick = () => { FE.model = null; FE.modelType = null; $('#fe-modelinfo').innerHTML = 'A stick figure in your colours.'; refreshPreview(); };
   $('#fe-turn').onclick = () => { FE.rot = ((FE.rot || 0) + Math.PI / 2) % (Math.PI * 2); refreshPreview(); };
   $('#fe-howto').onclick = (e) => { e.preventDefault(); openTutorials('size', 'screen-fighter-edit'); };
@@ -418,6 +491,7 @@ function buildFighterEdit() {
     if (a === 'up' && i > 0) [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]];
     if (a === 'model') { FE.stepFor = i; $('#fe-stepfile').click(); return; }
     if (a === 'nomodel') steps[i].model = null;
+    if (a === 'turn') steps[i].turn = ((steps[i].turn || 0) + 1) % 4;
     FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed();
   });
   $('#fe-addstep').onclick = () => { if (FE.special.steps.length >= MAX_STEPS) return; FE.special.steps.push(blankStep('blast')); FE.special = normalizeSpecial(FE.special).special; showSpecial(); changed(); };
@@ -437,6 +511,7 @@ function buildFighterEdit() {
     pushUndo(); const old = FE.special.steps; FE.special = { ...describeSpecial(t), mode: 'basic', desc: t }; keepModels(old);
     showSpecial(); changed(); $('#fe-report').innerHTML = '<span class="good">✨ Built.</span> <span class="warn">Test it before saving. Want a different look or something it does not know? The paid AI builds anything, in far more detail.</span>';
   };
+  $('#fe-cturn').onclick = () => { const st = FE.special.steps.find((x) => x.model && FE.props[x.model]); if (!st) { $('#fe-report').innerHTML = '<span class="warn">Upload your model first.</span>'; return; } st.turn = ((st.turn || 0) + 1) % 4; changed(); $('#fe-report').innerHTML += ' <span class="good">Model turned.</span>'; };
   $('#fe-cmodel').onclick = () => {
     let i = FE.special.steps.findIndex((x) => STEPS[x.kind].model);
     if (i < 0) { pushUndo(); FE.special = normalizeSpecial({ ...FE.special, steps: [{ ...blankStep('free'), hits: 3, fx: modelFx() }], onHit: FE.special.onHit?.length ? FE.special.onHit : ['knockdown'], mode: 'creative', desc: $('#fe-desc').value }).special; showSpecial(); changed(); i = 0; }
@@ -527,7 +602,7 @@ function showSteps() {
         <label class="f">Speed: <span data-v="speed">×${st.speed}</span><input type="range" data-f="speed" min="0.5" max="2" step="0.1" value="${st.speed}"></label></div>
       ${st.kind === 'shot' || st.kind === 'sky' ? `<div class="row"><label class="f">Shape<select data-f="shape">${opts(SHAPES, st.shape)}</select></label></div>` : ''}
       ${P.model ? `<div class="row"><span class="note">${own ? `Your model: <b>${esc(own.name)}</b> (${mb(own.data.byteLength)} MB)` : `Built-in look${st.kind === 'summon' ? ' (a tiger)' : st.kind === 'stomp' ? ' (a giant boot)' : ''}. Or your own 3D model (up to ${PROP_LIMIT_MB} MB):`}</span>
-        <button class="mini" data-a="model">${own ? 'CHANGE' : 'UPLOAD MODEL'}</button>${own ? '<button class="mini ghost" data-a="nomodel">BUILT-IN</button>' : ''}</div>` : ''}
+        <button class="mini" data-a="model">${own ? 'CHANGE' : 'UPLOAD MODEL'}</button>${own ? '<button class="mini ghost" data-a="turn">TURN 90°</button><button class="mini ghost" data-a="nomodel">BUILT-IN</button>' : ''}</div>` : ''}
     </div>`;
   }).join('');
   $('#fe-addstep').disabled = steps.length >= MAX_STEPS;
@@ -719,15 +794,16 @@ function buildArenaEdit() {
     <div class="chips" id="ae-modes"><button class="chip" data-m="free">1. FREE: BUILD IT FROM MY DESCRIPTION <span class="note">(the game builds it from its own parts)</span></button><button class="chip" data-m="paid">2. PAID: REALISTIC ARENA <span class="note">(painted by Gemini, like a photo)</span></button></div>
     <label class="f">Describe the place<textarea id="ae-desc" placeholder="e.g. a snowy mountain dojo at night with lanterns"></textarea></label>
     <div class="row"><button class="mini" id="ae-fill" data-only="free">BUILD IT FROM MY DESCRIPTION (FREE)</button><button class="mini" id="ae-list" data-only="free">📖 WHAT CAN IT BUILD?</button><button class="mini ai" id="ae-ai" hidden>AI PARTS</button><button class="mini ai" id="ae-aipic" data-only="paid">🖼 PAINT IT REALISTIC (3 designs)</button><span class="note ai-cr" data-only="paid"></span><a href="#" class="note" id="ae-aibuy" data-only="paid">get more</a></div>
-    <p class="note" id="ae-aimsg" data-only="free">FREE: describe the place and the game builds it instantly from its own library: famous places (a wizard castle, the avengers tower, Paris, the pyramids, Rome...), kinds of places (forest, city, beach, classroom, stadium...), country flags, and the time and weather. Unlimited, no waiting. Tap WHAT CAN IT BUILD? to see them all. For a place that isn't in the list, use the paid AI.</p>
-    <p class="note" data-only="paid">Two ways to get your place: 1. GAME ARENA: the game builds it from its own parts (ground, sky, weather, things around), for any place in any language. 2. REALISTIC ARENA: Gemini paints a realistic picture of it like a photo ("Hogwarts at night", "Tatooine"). BUILD IT FROM MY WORDS is the free basic version of 1 (English keywords).</p>
+    <p class="note" id="ae-aimsg" data-only="free">FREE: describe the place and the game builds it instantly from its own library: six kinds of castle, famous places (Paris, the pyramids, Rome...), kinds of places (forest, city, beach, classroom, stadium...), country flags, and the time and weather. Unlimited, no waiting. Tap WHAT CAN IT BUILD? to see them all. For a place that isn't in the list, use the paid AI.</p>
+    <p class="note" data-only="paid">Two ways to get your place: 1. GAME ARENA: the game builds it from its own parts (ground, sky, weather, things around), for any place in any language. 2. REALISTIC ARENA: Gemini paints a realistic picture of it like a photo ("a stone castle on a cliff at night", "a desert planet with two suns"). BUILD IT FROM MY WORDS is the free basic version of 1 (English keywords).</p>
     <div class="row"><label class="f">Name<input type="text" id="ae-name" maxlength="28"></label></div>
     <div class="row" hidden><label class="f">Ground<select id="ae-ground"></select></label></div>
     <div class="row" hidden><label class="f">Sky<select id="ae-sky"></select></label><label class="f">Weather<select id="ae-weather"></select></label><label class="note">Colour <input type="color" id="ae-accent"></label></div>
     <div hidden><div class="note">Around the arena (up to 5):</div><div class="chips" id="ae-props"></div></div>
     <div class="row" id="ae-picrow" hidden><span class="note">This arena has an AI-painted picture behind it.</span><button class="mini ghost" id="ae-nopic">REMOVE PICTURE</button></div>
     <p class="note">The arena shows behind this menu as you change it. Hide the menu to look: <button class="mini" id="ae-peek">LOOK (3 s)</button></p>
-    <div class="box" data-only="free"><label class="f">Not quite right? Say what to change<textarea id="ae-tweak" placeholder="e.g. the castle is too small, add more trees, make the floor darker, move the stage closer"></textarea></label><div class="row"><button class="mini" id="ae-tw">CHANGE IT</button><button class="mini ghost" id="ae-undo" disabled>↶ UNDO</button></div></div>
+    <div class="box" data-only="paid"><label class="f">Not quite right? Say what to change<textarea id="ae-tweak" placeholder="e.g. make it night, add snow, the castle should be much bigger, more trees on the left"></textarea></label><div class="row"><button class="mini ai" id="ae-tw">✨ AI CHANGE (3 designs)</button></div><p class="note">The AI paints the arena again with your change added to the description, so it costs the same as painting it.</p></div>
+    <div class="row"><button class="mini ghost" id="ae-undo" disabled>↶ UNDO</button></div>
     <p class="note bad" id="ae-err"></p>
     <div class="foot"><button class="btn" id="ae-save">SAVE</button><button class="btn" id="ae-cancel">CANCEL</button></div>`);
   const sel = (id, obj) => { $(id).innerHTML = Object.entries(obj).map(([k, v]) => `<option value="${k}">${esc(v.label || v)}</option>`).join(''); };
@@ -754,7 +830,7 @@ function buildArenaEdit() {
     delete AE.cfg.backdrop; delete AE.cfg.floor;
     $('#ae-err').innerHTML = r.guess
       ? `<span class="warn">I don't know that place${r.left.length ? ` ("${esc(r.left.join(' '))}")` : ''}, so this is a plain arena.</span> Tap WHAT CAN IT BUILD? to see the places I know, or use the paid AI for anything else.`
-      : `<span class="good">🗺 Built${r.matched.length ? `: ${esc([...new Set(r.matched)].join(', '))}` : ''}.</span> Press LOOK to see it, then SAVE. Not quite right? Say what to change below.`;
+      : `<span class="good">🗺 Built${r.matched.length ? `: ${esc([...new Set(r.matched)].join(', '))}` : ''}.</span> Press LOOK to see it, then SAVE. Not quite right? Change the description and press BUILD IT again.`;
     showArena(); api.previewArena(AE.cfg);
   };
   $('#ae-list').onclick = () => openLibrary((say) => { $('#ae-desc').value = say; $('#ae-err').innerHTML = '<span class="good">Written in the description.</span> Press BUILD IT, or change the words first.'; },
@@ -788,24 +864,26 @@ function buildArenaEdit() {
     AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), backdrop: a.backdrop?.url ? { url: a.backdrop.url } : AE.cfg.backdrop, floor: a.floor?.url ? { url: a.floor.url } : AE.cfg.floor,
       ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather, accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent };
     delete AE.cfg.scene;
-    $('#ae-err').innerHTML = '<span class="good">🖼 Painted by the AI:</span> SAVE to keep it.';
     showArena(); api.previewArena(AE.cfg);
+    $('#ae-err').innerHTML = await paintedNote(AE.cfg, 'Painted by the AI');
   };
   $('#ae-aibuy').onclick = (e) => { e.preventDefault(); openBuy(); };
   // change a little of the arena with words (the AI edits the recipe), instead of building it all again
-  $('#ae-tw').onclick = () => {
-    const t = $('#ae-tweak').value; if (!t.trim()) return;
-    if (!AE.cfg.scene) { $('#ae-err').innerHTML = '<span class="warn">Build the arena first, then say what to change.</span>'; return; }
+  $('#ae-tw').onclick = async () => {
+    const t = $('#ae-tweak').value.trim(); if (!t) { $('#ae-err').innerHTML = '<span class="warn">Say what to change first.</span>'; return; }
     readArena();
-    const r = tweakArena(AE.cfg, t);
-    if (!r.said.length) {
-      $('#ae-err').innerHTML = '<span class="warn">I did not understand that change.</span> Try: "add more trees", "remove the chairs", "the castle is too small", "make the floor darker", "move it closer", "make it night", "add rain", "make the flags red". Or describe a different place and press BUILD IT.';
-      return;
-    }
-    AE.undo.push(JSON.parse(JSON.stringify(AE.cfg))); $('#ae-undo').disabled = false;
-    AE.cfg = r.cfg;
-    $('#ae-err').innerHTML = `<span class="good">🗺 Changed: ${esc(r.said.join(', '))}.</span> Press LOOK to see it, then SAVE.`;
+    const base = ($('#ae-desc').value.trim() || AE.cfg.name).slice(0, Math.max(0, 560 - t.length)), text = `${base}. Change: ${t}`;
+    const before = JSON.parse(JSON.stringify(AE.cfg));
+    $('#ae-err').innerHTML = 'Painting your arena again… this takes about a minute.';
+    const a = await aiDesign('arena', text, $('#ae-tw'), (h) => { $('#ae-err').innerHTML = h; }, { realistic: true, arenaId: AE.cfg.id });
+    if (!a) return;
+    AE.undo.push(before); $('#ae-undo').disabled = false;
+    AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), backdrop: a.backdrop?.url ? { url: a.backdrop.url } : AE.cfg.backdrop, floor: a.floor?.url ? { url: a.floor.url } : AE.cfg.floor,
+      ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather, accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent };
+    delete AE.cfg.scene;
+    $('#ae-desc').value = text; $('#ae-tweak').value = '';
     showArena(); api.previewArena(AE.cfg);
+    $('#ae-err').innerHTML = await paintedNote(AE.cfg, 'Painted again with your change');
   };
   $('#ae-undo').onclick = () => { const prev = AE.undo.pop(); if (!prev) return; AE.cfg = prev; $('#ae-undo').disabled = !AE.undo.length; showArena(); api.previewArena(AE.cfg); };
 }
@@ -869,7 +947,7 @@ const TUTS = {
       <li><b>Default design:</b> build it from steps. For example <i>"summon a giant tiger that pounces on them, then a huge foot stomps them, then explode"</i> or <i>"three fast red fireballs that burn them"</i>. Add steps (up to ${MAX_STEPS}), played one after another.</li>
       <li>Each step is one of: <b>a shot</b>, <b>a beam</b>, <b>dash through</b>, <b>teleport behind</b>, <b>from the sky</b>, <b>a blast around you</b>, <b>summon a beast</b>, <b>a giant stomp</b>, <b>a cage</b>, <b>shadow clones</b> or <b>an earthquake</b>, each with its own hits, size and speed. Then <b>what the last hit does</b> (up to 3: knock down, launch, push, pull, daze, freeze, slow, poison, blind), the <b>damage in all</b> (up to ${MAX_DAMAGE}, the same as the strongest built-in specials, so it stays fair), the colour and sound.</li>
       <li><b>Your own models in a special:</b> a shot, a beast or a giant stomp can be your own 3D model (UPLOAD MODEL on that step, up to ${PROP_LIMIT_MB} MB): your dragon, your shoe, your rubber duck. Free models: Sketchfab (filter "Downloadable"), Poly Pizza, or make one in Blender.</li>
-      <li><b>Creative design</b> (✨ AI DESIGN, uses a credit): write what you want, in any language and however you say it (<i>"the player rides a wave towards the opponent, washing everything in its way"</i>, <i>"like Naruto's rasengan"</i>, <i>"כדור אש ענק"</i>). Nothing is pre-selected: the special follows only your words. New accounts get 3 free to try, then credits come in packs (GET MORE). Not right yet? Say what to change.</li>
+      <li><b>Creative design</b> (✨ AI DESIGN, uses a credit): write what you want, in any language and however you say it (<i>"the player rides a wave towards the opponent, washing everything in its way"</i>, <i>"a spinning ball of wind in the palm of the hand"</i>, <i>"כדור אש ענק"</i>). Nothing is pre-selected: the special follows only your words. New accounts get 3 free to try, then credits come in packs (GET MORE). Not right yet? Say what to change.</li>
       <li>Press <b>TEST THE SPECIAL</b>. The game plays it out by itself, close up, mid range and across the arena, and checks it doesn't break, ends, deals the right damage and plays the same every time (so it works online). When it says <b class="good">✓ Ready to try</b>, save, then press <b>TRY</b> to use it in practice.</li>
     </ol>
     <p><b>Making it perfect:</b> press <b>▶ TRY IT NOW</b> to use it on the training dummy straight away (pause → BACK TO THE EDITOR brings you back with everything as you left it). Not right? Write what's wrong in <b>Not quite right?</b>, like <i>"the tiger is too slow, bigger, 3 bites, freeze instead of knock down, add a cage at the end"</i>, and press <b>CHANGE IT</b> (free) or <b>✨ AI CHANGE</b> (understands anything). <b>UNDO</b> takes back a change. Try, change, try again, as many times as you like.</p>

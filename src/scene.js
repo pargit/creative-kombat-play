@@ -17,7 +17,7 @@ const pick = (v, list, d) => (list.includes(v) ? v : d);
 export const OP_TYPES = ['rect', 'circle', 'line', 'text', 'flag', 'noise'];
 export const OBJ_TYPES = ['box', 'cylinder', 'sphere', 'cone', 'tree', 'pine', 'palm', 'rock', 'bush', 'lamp', 'chair', 'bench', 'table', 'crate', 'fence', 'flagpole', 'banner', 'sign', 'stage', 'building', 'tent', 'tower', 'wall', 'dome', 'landmark'];
 export const EMBLEMS = ['none', 'star_of_david', 'circle', 'cross', 'star', 'crescent'];
-const MAX_OPS = 60, MAX_OBJECTS = 40, MAX_INSTANCES = 260;
+const MAX_OPS = 60, MAX_OBJECTS = 80, MAX_INSTANCES = 420;
 
 export function sanitizeFlag(f) {
   if (!f || typeof f !== 'object') return null;
@@ -166,7 +166,7 @@ function makeObject(o) {
 
 // ── ready-made landmarks: well-built models of famous kinds of places. The recipe only picks one (k), where it stands (x, z),
 // its size (s) and colours (c, c2, txt); the shape is fixed here, so a castle always looks like a castle. ──
-export const LANDMARKS = ['castle', 'skyscraper', 'eiffel', 'pyramid', 'pagoda', 'lighthouse', 'windmill', 'planet', 'colosseum', 'ship', 'igloo', 'stonehenge', 'bridge', 'volcano'];
+export const LANDMARKS = ['castle', 'skyscraper', 'eiffel', 'pyramid', 'pagoda', 'lighthouse', 'windmill', 'planet', 'colosseum', 'ship', 'igloo', 'stonehenge', 'bridge', 'volcano', 'fortress', 'gothic', 'fairy'];
 const WARM = '#ffcf6a';
 function winTex(bg, fg, cols, rows) {
   return canvasOf(256, 256, (g, w, h) => { g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = fg; const cw = w / cols, ch = h / rows; for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if ((r * 7 + c * 3) % 5 !== 0) g.fillRect(c * cw + cw * 0.18, r * ch + ch * 0.2, cw * 0.64, ch * 0.6); });
@@ -189,6 +189,14 @@ function roundTower(g, x, z, r, h, stone, roof) {
   g.add(part(new THREE.ConeGeometry(r * 1.35, roofH, 18), roof, x, h + 1.2 + roofH / 2, z));
   for (let y = 4; y < h - 2; y += 5) for (const a of [0.4, 1.6, 2.8, 4.4]) { const w = part(new THREE.PlaneGeometry(Math.max(0.35, r * 0.25), Math.max(0.7, r * 0.55)), wm, x + Math.sin(a) * (r * 1.04 + 0.05), y, z + Math.cos(a) * (r * 1.04 + 0.05)); w.rotation.y = a; g.add(w); }
 }
+function spireTower(g, x, z, r, h, stone, roof, tall = 5.5) {
+  const roofH = r * tall, wm = new THREE.MeshBasicMaterial({ color: WARM });
+  g.add(part(new THREE.CylinderGeometry(r, r * 1.12, h, 14), stone, x, h / 2, z));
+  g.add(part(new THREE.CylinderGeometry(r * 1.22, r, 1.2, 14), stone, x, h + 0.6, z)); // (the ring under the roof)
+  g.add(part(new THREE.ConeGeometry(r * 1.3, roofH, 14), roof, x, h + 1.2 + roofH / 2, z));
+  g.add(part(new THREE.SphereGeometry(Math.max(0.25, r * 0.16), 8, 6), new THREE.MeshBasicMaterial({ color: '#f4c542' }), x, h + 1.2 + roofH + 0.1, z));
+  for (let y = 4; y < h - 2; y += 5) for (const a of [0.4, 1.6, 2.8, 4.4]) { const w = part(new THREE.PlaneGeometry(Math.max(0.3, r * 0.22), Math.max(0.7, r * 0.55)), wm, x + Math.sin(a) * (r * 1.06 + 0.05), y, z + Math.cos(a) * (r * 1.06 + 0.05)); w.rotation.y = a; g.add(w); }
+}
 function battlements(g, x, y, z, w, d, mat) { const n = Math.min(60, Math.floor(w / 1.5)); for (let i = 0; i < n; i++) g.add(part(new THREE.BoxGeometry(0.8, 0.9, d), mat, x - w / 2 + 0.6 + i * (w - 1.2) / Math.max(1, n - 1), y + 0.45, z)); }
 function makeLandmark(o) {
   const g = new THREE.Group(), stone = std(o.c, { emissive: o.c, emissiveIntensity: 0.14 }), roof = std(o.c2, { emissive: o.c2, emissiveIntensity: 0.14 });
@@ -202,6 +210,42 @@ function makeLandmark(o) {
       for (let r = 0; r < 2; r++) for (let c = 0; c < 9; c++) g.add(part(new THREE.PlaneGeometry(1.1, 2.4), warm, -10 + c * 2.5, 4.5 + r * 4, 5.55));
       g.add(part(new THREE.BoxGeometry(58, 5, 1.8), stone, 0, 2.5, 14)); battlements(g, 0, 5, 14, 58, 1.8, stone);
       g.add(part(new THREE.BoxGeometry(5, 4.2, 2), dark, 0, 2.1, 14.1));
+      break;
+    }
+    case 'fortress': {
+      const warm = new THREE.MeshBasicMaterial({ color: WARM }), dark = std('#1d1d22'), flag = new THREE.MeshBasicMaterial({ color: o.c2, side: THREE.DoubleSide });
+      g.add(part(new THREE.BoxGeometry(16, 24, 11), stone, 0, 12, -3)); battlements(g, 0, 24, -3, 16, 11, stone);
+      g.add(part(new THREE.SphereGeometry(6, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), roof, 0, 25, -3));
+      g.add(part(new THREE.BoxGeometry(44, 11, 9), stone, 0, 5.5, 3)); battlements(g, 0, 11, 3, 44, 9, stone);
+      for (const sx of [-1, 1]) {
+        g.add(part(new THREE.BoxGeometry(8, 17, 8), stone, sx * 25, 8.5, 6)); battlements(g, sx * 25, 17, 6, 8, 8, stone);
+        g.add(part(new THREE.SphereGeometry(3.4, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), roof, sx * 25, 17.4, 6));
+        g.add(part(new THREE.CylinderGeometry(0.08, 0.08, 5, 6), std('#d0d4d8'), sx * 25, 22, 6)); g.add(part(new THREE.PlaneGeometry(2.6, 1.6), flag, sx * 25 + 1.4, 23.6, 6));
+        g.add(part(new THREE.BoxGeometry(8.4, 1, 8.4), roof, sx * 25, 13, 6)); // (a coloured band round the tower)
+      }
+      g.add(part(new THREE.BoxGeometry(6, 6.5, 1), dark, 0, 3.25, 7.6)); g.add(part(new THREE.CircleGeometry(3, 16, 0, Math.PI), dark, 0, 6.5, 7.6));
+      for (const y of [4, 8]) for (let x = -18; x <= 18; x += 4.5) if (Math.abs(x) > 4) g.add(part(new THREE.PlaneGeometry(0.9, 1.8), warm, x, y, 7.55));
+      for (const y of [15, 19]) for (const x of [-5, 0, 5]) g.add(part(new THREE.PlaneGeometry(1.2, 2.6), warm, x, y, 2.55));
+      break;
+    }
+    case 'gothic': {
+      const warm = new THREE.MeshBasicMaterial({ color: WARM }), dark = std('#0e0e12'), side = std(shadeHex(o.c));
+      g.add(part(new THREE.BoxGeometry(36, 15, 10), stone, 0, 7.5, 0)); const ridge = pyramidMesh(38, 16, 13, roof); ridge.position.set(0, 23, 0); g.add(ridge);
+      for (const x of [-14, -7, 0, 7, 14]) g.add(part(new THREE.BoxGeometry(1.4, 13, 1.8), side, x, 6.5, 5.6));
+      for (const x of [-10.5, -3.5, 3.5, 10.5]) { g.add(part(new THREE.PlaneGeometry(1.3, 4.2), warm, x, 8, 5.05)); g.add(part(new THREE.ConeGeometry(0.75, 1.6, 3), warm, x, 11.1, 5.05)); }
+      g.add(part(new THREE.CircleGeometry(2.3, 20), warm, 0, 12.2, 5.05)); g.add(part(new THREE.BoxGeometry(3.4, 5.4, 0.6), dark, 0, 2.7, 5.1)); g.add(part(new THREE.ConeGeometry(1.7, 2.6, 3), dark, 0, 6.4, 5.1));
+      for (const [x, z, r, h] of [[-24, -1, 2.8, 30], [24, -1, 2.8, 27], [-15, -6, 2.4, 36], [15, -6, 2.4, 33], [0, -8, 3.2, 50], [-31, 4, 2, 18], [31, 4, 2, 20]]) spireTower(g, x, z, r, h, stone, roof, 6);
+      break;
+    }
+    case 'fairy': {
+      const warm = new THREE.MeshBasicMaterial({ color: WARM }), dark = std('#2a2430'), pen = new THREE.MeshBasicMaterial({ color: '#ff5a7a', side: THREE.DoubleSide });
+      g.add(part(new THREE.BoxGeometry(30, 13, 9), stone, 0, 6.5, 0)); const rf = pyramidMesh(32, 6, 11, roof); rf.position.set(0, 16, 0); g.add(rf);
+      for (let c = 0; c < 8; c++) for (const y of [4, 8.5]) g.add(part(new THREE.PlaneGeometry(1, 2.3), warm, -10.5 + c * 3, y, 4.55));
+      g.add(part(new THREE.BoxGeometry(5, 6, 1), dark, 0, 3, 4.7)); g.add(part(new THREE.CircleGeometry(2.5, 16, 0, Math.PI), dark, 0, 6, 4.7));
+      for (const [x, z, r, h] of [[-19, 1, 3, 24], [19, 1, 3, 21], [-9, -3, 3.4, 34], [9, -3, 3.4, 30], [0, -5, 4.2, 46], [-27, 4, 2.2, 15], [27, 4, 2.2, 17], [-14, 5, 1.8, 13], [14, 5, 1.8, 11]]) {
+        spireTower(g, x, z, r, h, stone, roof, 4.2);
+        const top = h + 1.2 + r * 4.2; g.add(part(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 5), std('#d0d4d8'), x, top + 1.2, z)); g.add(part(new THREE.PlaneGeometry(1.6, 1), pen, x + 0.9, top + 2, z));
+      }
       break;
     }
     case 'skyscraper': {

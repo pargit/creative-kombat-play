@@ -10,6 +10,7 @@
 // moves), testSpecial plays it out in a quick invisible test, describeSpecial turns words into parts.
 
 import * as THREE from 'three';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { Effect, strike, registerEffect, tigerMesh } from './effects.js';
 import { DOT } from './fx.js';
 import { loadProp } from './rig.js';
@@ -60,6 +61,7 @@ export function normalizeSpecial(sp) {
     num(o, 'size', 0.5, 2.5, 1, `Step ${i + 1} size`); num(o, 'speed', 0.5, 2, 1, `Step ${i + 1} speed`);
     if (!SHAPES[o.shape]) o.shape = 'orb';
     if (!STEPS[o.kind].model || typeof o.model !== 'string') o.model = null;
+    o.turn = ((Math.round(Number(o.turn)) || 0) % 4 + 4) % 4; // (own model turned in quarter turns: files differ in which way they face)
     if (o.kind === 'free') { o.fx = normalizeFx(o.fx); if (!o.fx) { problems.push(`Step ${i + 1}: the freestyle effect was empty: a shot was used.`); o.kind = 'shot'; delete o.fx; } }
     else delete o.fx;
     return o;
@@ -293,6 +295,15 @@ function bootMesh(color) { // the built-in giant: a huge boot, sole down
   return g;
 }
 
+// the run / attack clips of a rigged model, found by name (a tiger: Run, Attack; others: Walk, Gallop, Bite...)
+function summonClips({ mixer, clips }) {
+  const names = Object.keys(clips), find = (...res) => { for (const re of res) { const n = names.find((x) => re.test(x)); if (n) return n; } return null; };
+  const run = find(/^run/i, /gallop|sprint|trot/i, /run/i, /walk fast|fast walk/i, /walk/i, /move/i) ?? names[0];
+  const attack = find(/attack|bite|pounce|strike/i, /jump|leap/i);
+  const act = (n) => (n ? mixer.clipAction(clips[n]) : null);
+  return { mixer, run: act(run), attack: act(attack), cur: null };
+}
+
 // one model per (url, height) on screen: the player's own (from their fighter's files), loaded once
 function ownModel(ctx, owner, id, height, onReady) {
   const p = owner.def.props?.[id];
@@ -385,11 +396,11 @@ class Shot extends Step {
   }
   render(time) {
     const st = this.st, d = this.d;
-    while (this.g.children.length < this.shots.length) this.g.add(this.custom ? this.custom.clone() : shotMesh(st.shape, this.color, st.size));
+    while (this.g.children.length < this.shots.length) this.g.add(this.custom ? SkeletonUtils.clone(this.custom) : shotMesh(st.shape, this.color, st.size));
     this.shots.forEach((s, i) => {
       const m = this.g.children[i];
       m.visible = s.live; m.position.set(s.x, s.y, 0.2);
-      if (this.custom) m.rotation.set(0, d > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
+      if (this.custom) m.rotation.set(0, (d > 0 ? Math.PI / 2 : -Math.PI / 2) + (st.turn || 0) * Math.PI / 2, 0);
       else if (st.shape === 'blade' || st.shape === 'star') m.rotation.z = time * 20 * d;
       else if (st.shape === 'rock') m.rotation.set(time * 5, time * 4, 0);
       else if (st.shape === 'arrow') m.rotation.y = d > 0 ? 0 : Math.PI;
@@ -488,7 +499,7 @@ class Summon extends Step {
     this.x = this.o.pos.x - this.d * 1.4; this.y = 0; this.phase = 'run'; this.pt = 0;
     const h = 1.1 * this.st.size;
     this.beast = tigerMesh(); this.beast.scale.setScalar(1.15 * this.st.size); this.g.add(this.beast);
-    if (this.st.model) ownModel(this.fx.ctx, this.o, this.st.model, h * 1.4, (m) => { this.beast.visible = false; this.custom = m; this.g.add(m); });
+    if (this.st.model) ownModel(this.fx.ctx, this.o, this.st.model, h * 1.4, (m) => { this.beast.visible = false; this.custom = m; this.g.add(m); this.anim = m.userData.anim && summonClips(m.userData.anim); });
     this.fx.ctx.sfx.whoosh?.();
   }
   tick(t) {
@@ -509,7 +520,15 @@ class Summon extends Step {
     const T = this.custom || this.beast, u = this.beast.userData, d = this.d, run = this.phase !== 'pounce', t = this.t || 0;
     this.g.position.set(0, 0, 0.3);
     T.position.set(this.x, this.y + (this.custom ? 0.55 * this.st.size + Math.abs(Math.sin(t * 0.55)) * 0.08 : 0), 0);
-    if (this.custom) T.rotation.set(0, d > 0 ? Math.PI / 2 : -Math.PI / 2, run ? Math.sin(t * 0.55) * 0.06 : 0);
+    if (this.custom) {
+      T.rotation.set(0, (d > 0 ? Math.PI / 2 : -Math.PI / 2) + (this.st.turn || 0) * Math.PI / 2, this.anim ? 0 : run ? Math.sin(t * 0.55) * 0.06 : 0);
+      if (this.anim) { // the model's own run / attack clips (visual only: the fight logic above never looks at them)
+        const A = this.anim, dt = Math.min(0.1, Math.max(0, time - (this.lastTime ?? time))); this.lastTime = time;
+        const want = this.phase === 'run' || this.phase === 'leave' ? A.run : (A.attack || A.run);
+        if (want && A.cur !== want) { A.cur?.fadeOut(0.1); want.reset().fadeIn(0.1).play(); A.cur = want; }
+        A.mixer.update(dt * (this.phase === 'run' ? 1.3 * this.st.speed : 1));
+      }
+    }
     else {
       T.scale.x = 1.15 * this.st.size * d;
       u.legs.forEach((leg, i) => { leg.rotation.z = run ? Math.sin(t * 0.55 + (i < 2 ? 0 : Math.PI) + (i % 2) * 0.4) * 0.7 : (i < 2 ? 1.0 : -0.9); });
@@ -649,7 +668,7 @@ class Free extends Step {
       for (let i = 0; i < l.count; i++) {
         if (own) { // the player's own 3D model, one per copy, 1 unit tall before the layer's size
           const grp = new THREE.Group(); grp.visible = false; this.g.add(grp); this.items.push({ m: grp, l, i, li, model: true });
-          ownModel(this.fx.ctx, this.o, this.st.model, 1, (mm) => { grp.add(mm.clone()); });
+          ownModel(this.fx.ctx, this.o, this.st.model, 1, (mm) => { grp.add(SkeletonUtils.clone(mm)); });
           continue;
         }
         const mat = l.glow ? new THREE.MeshBasicMaterial({ color: l.color, transparent: true, opacity: l.opacity, blending: THREE.AdditiveBlending, depthWrite: false })
@@ -743,7 +762,7 @@ class Free extends Step {
       m.visible = true; m.position.set(x, l.under ? y : Math.max(0.02, y), z); // (under: a burrower starts below the floor, which hides it until it comes up)
       m.scale.set(l.sx * g, l.sy * g, l.sz * g);
       if (m.material) m.material.opacity = l.opacity * fade;
-      if (it.model) m.rotation.set(0, (d > 0 ? Math.PI / 2 : -Math.PI / 2) + l.spin * time * 2, 0);
+      if (it.model) m.rotation.set(0, (d > 0 ? Math.PI / 2 : -Math.PI / 2) + (this.st.turn || 0) * Math.PI / 2 + l.spin * time * 2, 0);
       else if (l.shape === 'spike') m.rotation.set(0, 0, d > 0 ? -Math.PI / 2 : Math.PI / 2);
       else if (l.shape === 'disc') m.rotation.set(Math.PI / 2, l.spin * time * 2, 0);
       else if (l.shape === 'ring') m.rotation.set(0, 0, l.spin * time * 2);
