@@ -11,6 +11,7 @@ import { STEPS, ON_HIT, SHAPES, SOUNDS, MAX_DAMAGE, autoDamage, modelFx, MAX_STE
 import { findThing, LIBRARY_LIST } from './library.js';
 const KNOWS = 'animals (horse, tiger, dragon, eagle, dolphin, shark...), people (knight, wizard, ninja, robot, giant...), weapons and things (sword, spear, anvil, rocket, car, tank...) and effects (fireball, beam, wave, tornado, stomp...)';
 import { GROUNDS, SKIES, WEATHER, PROPS, PRESET_ARENAS, describeArena } from './arenas.js';
+import { libraryArena, tweakArena, ARENA_LIST } from './arena-library.js';
 
 // model files: what fits
 export const MODEL_LIMIT_MB = 20;      // the most we take
@@ -132,14 +133,14 @@ const LOADING_HTML = '<span class="busy">⏳ Designing… this can take up to a 
 
 // press AI DESIGN: the result, or the shop if they're out
 // the list of everything the free builder understands: tap one to use it as the description
-function openLibrary(pick) {
+function openLibrary(pick, list = LIBRARY_LIST, title = 'What the free builder understands', help = 'Tap one to write it in the description. Mix them: "a knight riding a horse, then a dragon falls from the sky". Add a colour (red, gold...), "giant" or "tiny", "fire" or "ice". For anything not here use the paid AI, or upload your own 3D model.') {
   document.getElementById('lib-list')?.remove();
   const el = document.createElement('div'); el.id = 'lib-list';
   el.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(10,5,6,.82);display:flex;align-items:center;justify-content:center;padding:12px';
-  const sec = LIBRARY_LIST.map((g) => `<h4 style="margin:14px 0 2px;color:#f4c542;font:800 15px system-ui">${esc(g.title)}</h4>${g.note ? `<div style="font:400 12px system-ui;color:#c9b99f;margin-bottom:4px">${esc(g.note)}</div>` : ''}<div style="display:flex;flex-wrap:wrap;gap:6px">${g.items.map((x) => `<button class="mini" data-say="${esc(x.say)}" style="text-align:left" title="${esc(x.also ? 'Also understands: ' + x.also : '')}">${esc(x.name)}${x.also ? `<span style="display:block;font:400 10px system-ui;opacity:.7">${esc(x.also.split(', ').slice(0, 3).join(', '))}</span>` : ''}</button>`).join('')}</div>`).join('');
+  const sec = list.map((g) => `<h4 style="margin:14px 0 2px;color:#f4c542;font:800 15px system-ui">${esc(g.title)}</h4>${g.note ? `<div style="font:400 12px system-ui;color:#c9b99f;margin-bottom:4px">${esc(g.note)}</div>` : ''}<div style="display:flex;flex-wrap:wrap;gap:6px">${g.items.map((x) => `<button class="mini" data-say="${esc(x.say)}" style="text-align:left" title="${esc(x.also ? 'Also understands: ' + x.also : '')}">${esc(x.name)}${x.also ? `<span style="display:block;font:400 10px system-ui;opacity:.7">${esc(x.also.split(', ').slice(0, 3).join(', '))}</span>` : ''}</button>`).join('')}</div>`).join('');
   el.innerHTML = `<div style="background:#2a1816;border:2px solid rgba(244,197,66,.6);border-radius:10px;padding:16px 18px;max-width:min(640px,96vw);max-height:90vh;overflow:auto;color:#f5ecdf;font:400 14px/1.4 system-ui">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b style="font-size:17px">What the free builder understands</b><button class="mini" id="lib-x">CLOSE</button></div>
-    <p style="margin:6px 0 0;font-size:12px;color:#c9b99f">Tap one to write it in the description. Mix them: "a knight riding a horse, then a dragon falls from the sky". Add a colour (red, gold...), "giant" or "tiny", "fire" or "ice". For anything not here use the paid AI, or upload your own 3D model.</p>${sec}</div>`;
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b style="font-size:17px">${esc(title)}</b><button class="mini" id="lib-x">CLOSE</button></div>
+    <p style="margin:6px 0 0;font-size:12px;color:#c9b99f">${esc(help)}</p>${sec}</div>`;
   document.body.appendChild(el);
   el.onclick = (e) => { if (e.target === el || e.target.id === 'lib-x') return el.remove(); const b = e.target.closest('[data-say]'); if (b) { el.remove(); pick(b.dataset.say); } };
 }
@@ -717,8 +718,8 @@ function buildArenaEdit() {
     <h2 id="ae-title">NEW ARENA</h2>
     <div class="chips" id="ae-modes"><button class="chip" data-m="free">1. FREE: BUILD IT FROM MY DESCRIPTION <span class="note">(the game builds it from its own parts)</span></button><button class="chip" data-m="paid">2. PAID: REALISTIC ARENA <span class="note">(painted by Gemini, like a photo)</span></button></div>
     <label class="f">Describe the place<textarea id="ae-desc" placeholder="e.g. a snowy mountain dojo at night with lanterns"></textarea></label>
-    <div class="row"><button class="mini" id="ae-fill" data-only="free">BUILD IT FROM MY DESCRIPTION (FREE)</button><button class="mini ai" id="ae-ai" hidden>AI PARTS</button><button class="mini ai" id="ae-aipic" data-only="paid">🖼 PAINT IT REALISTIC (3 designs)</button><span class="note ai-cr" data-only="paid"></span><a href="#" class="note" id="ae-aibuy" data-only="paid">get more</a></div>
-    <p class="note" id="ae-aimsg" data-only="free">FREE: describe the place and the AI builds a detailed arena for you from the game's own shapes (floor markings, flags, trees, buildings, chairs, fences...), up to 20 a day. Any language. Press LOOK to see it, then SAVE.</p>
+    <div class="row"><button class="mini" id="ae-fill" data-only="free">BUILD IT FROM MY DESCRIPTION (FREE)</button><button class="mini" id="ae-list" data-only="free">📖 WHAT CAN IT BUILD?</button><button class="mini ai" id="ae-ai" hidden>AI PARTS</button><button class="mini ai" id="ae-aipic" data-only="paid">🖼 PAINT IT REALISTIC (3 designs)</button><span class="note ai-cr" data-only="paid"></span><a href="#" class="note" id="ae-aibuy" data-only="paid">get more</a></div>
+    <p class="note" id="ae-aimsg" data-only="free">FREE: describe the place and the game builds it instantly from its own library: famous places (a wizard castle, the avengers tower, Paris, the pyramids, Rome...), kinds of places (forest, city, beach, classroom, stadium...), country flags, and the time and weather. Unlimited, no waiting. Tap WHAT CAN IT BUILD? to see them all. For a place that isn't in the list, use the paid AI.</p>
     <p class="note" data-only="paid">Two ways to get your place: 1. GAME ARENA: the game builds it from its own parts (ground, sky, weather, things around), for any place in any language. 2. REALISTIC ARENA: Gemini paints a realistic picture of it like a photo ("Hogwarts at night", "Tatooine"). BUILD IT FROM MY WORDS is the free basic version of 1 (English keywords).</p>
     <div class="row"><label class="f">Name<input type="text" id="ae-name" maxlength="28"></label></div>
     <div class="row" hidden><label class="f">Ground<select id="ae-ground"></select></label></div>
@@ -741,25 +742,23 @@ function buildArenaEdit() {
     showArena(); api.previewArena(AE.cfg);
   };
   $('#ae-modes').onclick = (e) => { const m = e.target.closest('[data-m]')?.dataset.m; if (!m || m === AE.mode) return; AE.mode = m; showArena(); };
-  // free: the AI writes a detailed recipe (floor markings, flags, trees, buildings...); if it can't, the basic keyword builder does what it can
-  $('#ae-fill').onclick = async () => {
-    const t = $('#ae-desc').value; if (!t.trim()) return;
+  // free: the game's own library builds it on the spot (no AI service, no limit); the paid AI is for places the library doesn't know
+  $('#ae-fill').onclick = () => {
+    const t = $('#ae-desc').value; if (!t.trim()) { $('#ae-err').innerHTML = '<span class="warn">Describe the place first, in your own words.</span>'; return; }
     readArena();
-    $('#ae-err').innerHTML = 'Building your arena… this can take up to a minute.';
-    const a = await aiDesign('scene', t, $('#ae-fill'), (h) => { $('#ae-err').innerHTML = h; });
-    if (a) {
-      AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather,
-        accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent, scene: { floorColor: a.floorColor, floor: a.floor, objects: a.objects } };
-      delete AE.cfg.backdrop; delete AE.cfg.floor;
-      
-      $('#ae-err').innerHTML = '<span class="good">🗺 Built.</span> Press LOOK to see it, then SAVE.';
-    } else if (AI.unavailable) {
-      const nm = $('#ae-name').value.trim();
-      AE.cfg = { ...AE.cfg, ...describeArena(t, nm && nm !== 'My Arena' ? nm : undefined) }; delete AE.cfg.scene;
-      $('#ae-err').innerHTML += '<br>The basic keyword builder was used instead.';
-    }
+    const nm = $('#ae-name').value.trim(), typed = nm && nm !== 'My Arena' && nm !== AE.autoName;
+    const r = libraryArena(t, typed ? nm : undefined);
+    AE.undo.push(JSON.parse(JSON.stringify(AE.cfg))); $('#ae-undo').disabled = false;
+    AE.autoName = typed ? '' : r.name;
+    AE.cfg = { ...AE.cfg, name: r.name, ground: r.ground, sky: r.sky, weather: r.weather, accent: r.accent, props: r.props, scene: r.scene };
+    delete AE.cfg.backdrop; delete AE.cfg.floor;
+    $('#ae-err').innerHTML = r.guess
+      ? `<span class="warn">I don't know that place${r.left.length ? ` ("${esc(r.left.join(' '))}")` : ''}, so this is a plain arena.</span> Tap WHAT CAN IT BUILD? to see the places I know, or use the paid AI for anything else.`
+      : `<span class="good">🗺 Built${r.matched.length ? `: ${esc([...new Set(r.matched)].join(', '))}` : ''}.</span> Press LOOK to see it, then SAVE. Not quite right? Say what to change below.`;
     showArena(); api.previewArena(AE.cfg);
   };
+  $('#ae-list').onclick = () => openLibrary((say) => { $('#ae-desc').value = say; $('#ae-err').innerHTML = '<span class="good">Written in the description.</span> Press BUILD IT, or change the words first.'; },
+    ARENA_LIST, 'What the free arena builder can make', 'Tap one to write it in the description. Add a time or weather to any place ("... at night", "... in the rain", "... in thick fog"), a colour ("a red floor"), or a country flag ("the israeli flag"). A place that is not here: use the paid AI.');
   $('#ae-nopic').onclick = () => { delete AE.cfg.backdrop; delete AE.cfg.floor; showArena(); api.previewArena(AE.cfg); };
   $('#ae-peek').onclick = () => { const s = $('#screen-arena-edit'); s.style.opacity = '0'; setTimeout(() => { s.style.opacity = ''; }, 3000); };
   $('#ae-save').onclick = async () => {
@@ -794,19 +793,18 @@ function buildArenaEdit() {
   };
   $('#ae-aibuy').onclick = (e) => { e.preventDefault(); openBuy(); };
   // change a little of the arena with words (the AI edits the recipe), instead of building it all again
-  $('#ae-tw').onclick = async () => {
+  $('#ae-tw').onclick = () => {
     const t = $('#ae-tweak').value; if (!t.trim()) return;
     if (!AE.cfg.scene) { $('#ae-err').innerHTML = '<span class="warn">Build the arena first, then say what to change.</span>'; return; }
     readArena();
-    $('#ae-err').innerHTML = LOADING_HTML;
-    const c = AE.cfg, sc = c.scene;
-    const a = await aiDesign('scenetweak', t, $('#ae-tw'), (h) => { $('#ae-err').innerHTML = h; }, { scene: { name: c.name, ground: c.ground, sky: c.sky, weather: c.weather, accent: c.accent, floorColor: sc.floorColor || '', floor: sc.floor || [], objects: sc.objects || [] } });
-    if (!a) return;
+    const r = tweakArena(AE.cfg, t);
+    if (!r.said.length) {
+      $('#ae-err').innerHTML = '<span class="warn">I did not understand that change.</span> Try: "add more trees", "remove the chairs", "the castle is too small", "make the floor darker", "move it closer", "make it night", "add rain", "make the flags red". Or describe a different place and press BUILD IT.';
+      return;
+    }
     AE.undo.push(JSON.parse(JSON.stringify(AE.cfg))); $('#ae-undo').disabled = false;
-    AE.cfg = { ...AE.cfg, name: String(a.name || c.name).slice(0, 24), ground: a.ground in GROUNDS ? a.ground : c.ground, sky: a.sky in SKIES ? a.sky : c.sky, weather: a.weather in WEATHER ? a.weather : c.weather,
-      accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : c.accent, scene: { floorColor: a.floorColor, floor: a.floor, objects: a.objects } };
-    
-    $('#ae-err').innerHTML = '<span class="good">🗺 Changed.</span> Press LOOK to see it, then SAVE.';
+    AE.cfg = r.cfg;
+    $('#ae-err').innerHTML = `<span class="good">🗺 Changed: ${esc(r.said.join(', '))}.</span> Press LOOK to see it, then SAVE.`;
     showArena(); api.previewArena(AE.cfg);
   };
   $('#ae-undo').onclick = () => { const prev = AE.undo.pop(); if (!prev) return; AE.cfg = prev; $('#ae-undo').disabled = !AE.undo.length; showArena(); api.previewArena(AE.cfg); };

@@ -166,7 +166,7 @@ function makeObject(o) {
 
 // ── ready-made landmarks: well-built models of famous kinds of places. The recipe only picks one (k), where it stands (x, z),
 // its size (s) and colours (c, c2, txt); the shape is fixed here, so a castle always looks like a castle. ──
-export const LANDMARKS = ['castle', 'skyscraper', 'eiffel', 'pyramid', 'pagoda', 'lighthouse', 'windmill', 'planet'];
+export const LANDMARKS = ['castle', 'skyscraper', 'eiffel', 'pyramid', 'pagoda', 'lighthouse', 'windmill', 'planet', 'colosseum', 'ship', 'igloo', 'stonehenge', 'bridge', 'volcano'];
 const WARM = '#ffcf6a';
 function winTex(bg, fg, cols, rows) {
   return canvasOf(256, 256, (g, w, h) => { g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = fg; const cw = w / cols, ch = h / rows; for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if ((r * 7 + c * 3) % 5 !== 0) g.fillRect(c * cw + cw * 0.18, r * ch + ch * 0.2, cw * 0.64, ch * 0.6); });
@@ -181,6 +181,7 @@ function beam(a, b, r, mat) {
   m.position.copy(A).add(B).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
   return m;
 }
+function shadeHex(c) { const n = parseInt(c.slice(1), 16); const f = (v) => Math.round(v * 0.72); return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => f(v).toString(16).padStart(2, '0')).join(''); }
 function roundTower(g, x, z, r, h, stone, roof) {
   const roofH = Math.max(3, r * 2.8), wm = new THREE.MeshBasicMaterial({ color: WARM });
   g.add(part(new THREE.CylinderGeometry(r, r * 1.1, h, 18), stone, x, h / 2, z));
@@ -256,6 +257,67 @@ function makeLandmark(o) {
       const hub = new THREE.Group(); hub.position.set(0, 12.5, 3.6);
       for (const rot of [0, Math.PI / 2]) { const sail = part(new THREE.BoxGeometry(1.1, 15, 0.25), std('#e8dcc0'), 0, 0, 0); sail.rotation.z = rot + 0.4; hub.add(sail); }
       g.add(hub); g.add(part(new THREE.SphereGeometry(0.6, 8, 6), std('#4a3a2a'), 0, 12.5, 3.6));
+      break;
+    }
+    case 'colosseum': {
+      // an oval of three stacked tiers of arches; only the back and the sides stand (the front is open to the fight)
+      const dark = new THREE.MeshBasicMaterial({ color: '#1a1410' }), n = 30, R = 17;
+      for (let t = 0; t < 3; t++) for (let i = 0; i < n; i++) {
+        const a = -0.35 + (i / (n - 1)) * (Math.PI + 0.7), x = Math.cos(a) * R * 1.35, z = -Math.sin(a) * R;
+        const seg = part(new THREE.BoxGeometry(R * 0.27, 4.6, 1.8), t === 1 ? roof : stone, x, 2.3 + t * 4.7, z); seg.rotation.y = a + Math.PI / 2; g.add(seg);
+        const arch = part(new THREE.PlaneGeometry(1.5, 3.1), dark, Math.cos(a) * (R * 1.35 + Math.cos(a) * 0.95), 2.2 + t * 4.7, -Math.sin(a) * (R + Math.sin(a) * 0.95)); arch.rotation.y = a + Math.PI / 2; g.add(arch);
+        const inner = part(new THREE.PlaneGeometry(1.5, 3.1), dark, Math.cos(a) * (R * 1.35 - Math.cos(a) * 0.95), 2.2 + t * 4.7, -Math.sin(a) * (R - Math.sin(a) * 0.95)); inner.rotation.y = a - Math.PI / 2; g.add(inner);
+      }
+      for (let i = 0; i < n; i += 2) { const a = -0.35 + (i / (n - 1)) * (Math.PI + 0.7); g.add(part(new THREE.BoxGeometry(1.1, 1.4, 1.1), stone, Math.cos(a) * R * 1.35, 14.8, -Math.sin(a) * R)); }
+      break;
+    }
+    case 'ship': {
+      const wood = std(o.c, { emissive: o.c, emissiveIntensity: 0.3 }), sail = std(o.c2, { side: THREE.DoubleSide, emissive: o.c2, emissiveIntensity: 0.35 });
+      g.add(part(new THREE.BoxGeometry(26, 4, 7), wood, 0, 3, 0));
+      const bow = part(new THREE.BoxGeometry(7, 4, 7), wood, 15.5, 3.6, 0); bow.rotation.z = -0.35; g.add(bow);
+      g.add(part(new THREE.BoxGeometry(6, 3, 7.4), std(shadeHex(o.c)), -11, 5.5, 0)); // (the stern)
+      g.add(part(new THREE.BoxGeometry(24, 0.5, 7.4), std(shadeHex(o.c)), 0, 5.2, 0));
+      for (const [x, h] of [[-7, 20], [0, 25], [7, 19]]) {
+        g.add(part(new THREE.CylinderGeometry(0.35, 0.45, h, 8), std('#4a3220'), x, 5 + h / 2, 0));
+        g.add(part(new THREE.BoxGeometry(0.3, 0.4, 9), std('#4a3220'), x, 5 + h * 0.85, 0));
+        g.add(part(new THREE.BoxGeometry(0.15, h * 0.6, 8), sail, x + 0.2, 5 + h * 0.55, 0));
+      }
+      g.add(part(new THREE.BoxGeometry(0.1, 2.2, 3.2), std('#111111'), 0.25, 5 + 26.5, 0));
+      for (const c of g.children) c.position.y -= 1.2; // (the hull sits in the water line)
+      for (let i = 0; i < 6; i++) g.add(part(new THREE.CylinderGeometry(0.3, 0.3, 0.5, 10), std('#222'), -9 + i * 3.6, 4, 3.7).rotateX(Math.PI / 2));
+      break;
+    }
+    case 'igloo': {
+      g.add(part(new THREE.SphereGeometry(5, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), std(o.c), 0, 0, 0));
+      for (let r = 0; r < 4; r++) g.add(part(new THREE.TorusGeometry(Math.sqrt(25 - (r * 1.1) ** 2), 0.06, 4, 24), std(o.c2), 0, r * 1.1, 0).rotateX(Math.PI / 2));
+      const tun = part(new THREE.CylinderGeometry(1.7, 1.7, 3.5, 14, 1, false, 0, Math.PI), std(o.c), 0, 0, 5); tun.rotation.set(Math.PI / 2, 0, Math.PI / 2); g.add(tun);
+      g.add(part(new THREE.PlaneGeometry(2.2, 2.2), new THREE.MeshBasicMaterial({ color: '#1b2a3a' }), 0, 1.1, 6.8));
+      break;
+    }
+    case 'stonehenge': {
+      const rock = std(o.c, { flatShading: true }), n = 10, R = 11;
+      for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; g.add(part(new THREE.BoxGeometry(2.4, 7, 1.4), rock, Math.cos(a) * R, 3.5, Math.sin(a) * R).rotateY(-a + Math.PI / 2)); }
+      for (let i = 0; i < n; i += 2) { const a = ((i + 0.5) / n) * Math.PI * 2; const l = part(new THREE.BoxGeometry(R * 0.66, 1.2, 1.5), rock, Math.cos(a) * R, 7.6, Math.sin(a) * R); l.rotation.y = -a + Math.PI / 2; g.add(l); }
+      for (let i = 0; i < 5; i++) { const a = i * 1.26; g.add(part(new THREE.BoxGeometry(2, 5.5 + (i % 2), 1.2), rock, Math.cos(a) * 4, 2.8, Math.sin(a) * 4)); }
+      break;
+    }
+    case 'bridge': {
+      const red = std(o.c, { metalness: 0.3, roughness: 0.5 }), cab = std(o.c2);
+      g.add(part(new THREE.BoxGeometry(120, 1.2, 5), std('#55595e'), 0, 6, 0));
+      for (const x of [-22, 22]) {
+        for (const dz of [-2.2, 2.2]) g.add(part(new THREE.BoxGeometry(1.5, 38, 1.5), red, x, 19, dz));
+        for (const y of [14, 26, 36]) g.add(part(new THREE.BoxGeometry(1.2, 1.4, 6), red, x, y, 0));
+        g.add(part(new THREE.BoxGeometry(2.2, 2, 6.4), red, x, 38.5, 0));
+      }
+      const cable = (x1, y1, x2, y2, sag) => { let p = [x1, y1]; for (let i = 1; i <= 12; i++) { const k = i / 12, q = [x1 + (x2 - x1) * k, y1 + (y2 - y1) * k - Math.sin(k * Math.PI) * sag]; for (const z of [-2.4, 2.4]) g.add(beam([p[0], p[1], z], [q[0], q[1], z], 0.22, cab)); p = q; } };
+      cable(-22, 38, 22, 38, -26); cable(-60, 7, -22, 38, -4); cable(22, 38, 60, 7, -4);
+      for (let i = -9; i <= 9; i++) { const x = i * 4.2; if (Math.abs(x) > 22 && Math.abs(x) < 27) continue; const y = Math.abs(x) <= 22 ? 38 - 26 * Math.sin(((x + 22) / 44) * Math.PI) : 7; if (Math.abs(x) <= 22) for (const z of [-2.4, 2.4]) g.add(beam([x, y, z], [x, 6.6, z], 0.06, cab)); }
+      break;
+    }
+    case 'volcano': {
+      g.add(part(new THREE.CylinderGeometry(4, 20, 26, 16), std(o.c, { flatShading: true }), 0, 13, 0));
+      g.add(part(new THREE.CylinderGeometry(3.6, 3.6, 0.6, 16), new THREE.MeshBasicMaterial({ color: o.c2 }), 0, 26.2, 0));
+      for (let i = 0; i < 5; i++) { const a = i * 1.26 + 0.4, s = part(new THREE.BoxGeometry(1.1, 21, 0.25), new THREE.MeshBasicMaterial({ color: o.c2 }), Math.sin(a) * 11.2, 13.5, Math.cos(a) * 11.2); s.rotation.y = a; s.rotateX(-0.46); g.add(s); }
       break;
     }
     case 'planet': {

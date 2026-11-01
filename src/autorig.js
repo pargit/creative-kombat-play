@@ -97,11 +97,13 @@ export function findLandmarks(points, H) {
   let fat = false;
   {
     const lo = crotchY + 0.15 * (H - crotchY), hi = a + b * shoulderX - 0.18 * H;
-    const xs = points.filter((p) => p.y > lo && p.y < hi).map((p) => Math.abs(p.x)).sort((u, v) => u - v);
-    if (xs.length > 40) {
-      const bodyW = xs[Math.floor(xs.length * 0.95)];
-      if (bodyW > shoulderX * 1.5 && bodyW < 0.3 * H) { shoulderX = bodyW; ({ a, b } = fitArm(shoulderX)); fat = true; }
-    }
+    // widest the connected body gets in slices under the arms (arms hanging down in an A-pose are separated from it by a gap)
+    // (the middle value over the slices: one slice where an arm touches the body can't fool it)
+    const widths = [];
+    for (let y = lo; y < hi; y += 0.02 * H) { const w = centralHalfWidth(slice(y, 0.015 * H).map((p) => p.x), 0.08 * H); if (w > 0) widths.push(w); }
+    widths.sort((u, v) => u - v);
+    const bodyW = widths.length >= 5 ? widths[Math.floor(widths.length * 0.6)] : 0;
+    if (bodyW > shoulderX * 1.5 && bodyW < 0.3 * H) { shoulderX = bodyW; ({ a, b } = fitArm(shoulderX)); fat = true; }
   }
   const shoulderY = a + b * shoulderX;
   const wristY = a + b * wristX;
@@ -172,7 +174,8 @@ function skinWeights(geo, L, arms = {}) {
     // the line, otherwise long hair hanging beside the face gets dragged along with the arms.
     const above = y - armLineY, below = armLineY - y;
     const nearShoulder = armT < 0.22;
-    const inArm = armT > -0.05 && y > L.waistY + 0.25 * (L.shoulderY - L.waistY)
+    // (arms hanging down in an A-pose reach well below the waist-to-shoulder quarter mark: the bound follows the wrist)
+    const inArm = armT > -0.05 && y > Math.max(L.waistY, Math.min(L.waistY + 0.25 * (L.shoulderY - L.waistY), L.wristY - 0.12 * H))
       && above < (arms.above ?? (nearShoulder ? 0.035 : 0.075)) * H && below < (arms.below ?? 0.12) * H
       && (arms.zMin == null || z > arms.zMin * H); // (roster) hair hanging down behind the shoulders isn't arm
     if (inArm) {

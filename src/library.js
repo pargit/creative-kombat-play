@@ -547,7 +547,7 @@ const WORDS = [
   [/\b(eagles?|falcons?)\b/, 'B', 'eagle'], [/\b(hawks?|kites?|buzzards?)\b/, 'B', 'hawk'], [/\b(vultures?|condors?)\b/, 'B', 'vulture'], [/\b(owls?)\b/, 'B', 'owl'], [/\b(crows?|ravens?|blackbirds?)\b/, 'B', 'crow'], [/\b(bats?|vampire bats?)\b/, 'B', 'bat'], [/\b(parrots?|macaws?)\b/, 'B', 'parrot'], [/\b(toucans?)\b/, 'B', 'toucan'],
   [/\b(seagulls?|gulls?|doves?|pigeons?|storks?)\b/, 'B', 'seagull'], [/\b(swans?|geese|goose|ducks?)\b/, 'B', 'swan'], [/\b(chickens?|roosters?|hens?)\b/, 'B', 'chicken'], [/\b(phoenix|phoenixes|firebirds?)\b/, 'B', 'phoenix'], [/\b(birds?|sparrows?|robins?|songbirds?)\b/, 'B', 'bird'],
   [/\b(whales?)\b/, 'S', 'whale'], [/\b(orcas?|killer whales?)\b/, 'S', 'orca'], [/\b(dolphins?|porpoises?)\b/, 'S', 'dolphin'], [/\b(sharks?|megalodons?|great white)\b/, 'S', 'shark'], [/\b(fish|fishes|piranhas?|salmon|tuna|swordfish|marlin)\b/, 'S', 'fish'],
-  [/\b(snakes?|serpents?|cobras?|pythons?|vipers?|anacondas?|eels?|hydras?)\b/, 'N', 'snake'], [/\b(moles?|gophers?|groundhogs?|badgers?|prairie dogs?|meerkats?)\b/, 'U', 'mole'], [/\b(sand ?worms?|giant worms?|dune worms?|worms?|earthworms?)\b/, 'U', 'sandworm'],
+  [/\b(snakes?|serpents?|cobras?|pythons?|vipers?|anacondas?|eels?|hydras?)\b/, 'N', 'snake'], [/\b(moles?|gophers?|groundhogs?|badgers?|prairie dogs?|meerkats?)\b/, 'U', 'mole'], [/\b((giant |huge |dune )?sand ?worms?|giant worms?|dune worms?|worms?|earthworms?)\b/, 'U', 'sandworm'],
   [/\b(dragons?|wyverns?|drakes?)\b/, 'D', 'dragon'], [/\b(dinosaurs?|dinos?|t-?rex|tyrannosaurus|trex)\b/, 'D', 'dino'],
   [/\b(knights?|paladins?|crusaders?|warriors?|soldiers?|samurai)\b/, 'H', 'knight'], [/\b(wizards?|witch(es)?|mages?|sorcerers?|sorceress(es)?|warlocks?)\b/, 'H', 'wizard'], [/\b(ninjas?|assassins?|rogues?)\b/, 'H', 'ninja'],
   [/\b(robots?|androids?|cyborgs?|mechs?|terminators?)\b/, 'H', 'robot'], [/\b(skeletons?|skulls?|bones?|undead)\b/, 'H', 'skeleton'], [/\b(zombies?|ghouls?|mummy|mummies)\b/, 'H', 'zombie'], [/\b(vikings?|barbarians?)\b/, 'H', 'viking'],
@@ -569,7 +569,8 @@ const COLORS = { red: '#d8322a', blue: '#2f6fd8', green: '#3a9a4a', yellow: '#f2
 function findAll(t) {
   const all = [];
   for (const [re, g, key] of WORDS) { const m = re.exec(t); if (m) all.push({ index: m.index, group: g, key, word: m[0] }); }
-  return all.sort((a, b) => a.index - b.index);
+  // a word inside a longer match is part of it ("giant" in "giant sandworm")
+  return all.filter((x) => !all.some((y) => y !== x && y.index <= x.index && y.index + y.word.length >= x.index + x.word.length && y.word.length > x.word.length)).sort((a, b) => a.index - b.index);
 }
 // the thing the words are about: "a wizard riding a horse" is the horse, "a wizard throws a rocket" is the rocket
 export function findThing(text) {
