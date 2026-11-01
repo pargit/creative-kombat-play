@@ -75,17 +75,33 @@ export function findLandmarks(points, H) {
 
   const wristX = points.reduce((m, p) => Math.max(m, Math.abs(p.x)), 0);
   const torsoY = crotchY + 0.3 * (H - crotchY) * 0.7;
-  const shoulderX = Math.max(0.06 * H, centralHalfWidth(slice(torsoY).map((p) => p.x), gap));
+  let shoulderX = Math.max(0.06 * H, centralHalfWidth(slice(torsoY).map((p) => p.x), gap));
 
   // arm line: fit y = a + b·|x| through everything clearly outside the torso, above the waist
-  const arm = points.filter((p) => Math.abs(p.x) > shoulderX + 0.04 * H && p.y > crotchY + 0.1 * (H - crotchY));
-  let a = crotchY + 0.5 * (H - crotchY), b = 0;
-  if (arm.length > 20) {
-    let sx = 0, sy = 0, sxx = 0, sxy = 0;
-    for (const p of arm) { const x = Math.abs(p.x); sx += x; sy += p.y; sxx += x * x; sxy += x * p.y; }
-    const n = arm.length;
-    b = (n * sxy - sx * sy) / Math.max(1e-9, n * sxx - sx * sx);
-    a = (sy - b * sx) / n;
+  const fitArm = (sx) => {
+    const arm = points.filter((p) => Math.abs(p.x) > sx + 0.04 * H && p.y > crotchY + 0.1 * (H - crotchY));
+    let a = crotchY + 0.5 * (H - crotchY), b = 0;
+    if (arm.length > 20) {
+      let sumx = 0, sumy = 0, sxx = 0, sxy = 0;
+      for (const p of arm) { const x = Math.abs(p.x); sumx += x; sumy += p.y; sxx += x * x; sxy += x * p.y; }
+      const n = arm.length;
+      b = (n * sxy - sumx * sumy) / Math.max(1e-9, n * sxx - sumx * sumx);
+      a = (sumy - b * sumx) / n;
+    }
+    return { a, b };
+  };
+  let { a, b } = fitArm(shoulderX);
+  // A big round belly (Kung Fu Panda) hides where the shoulders are: the torso slice found a narrow bit of it, so the "arms"
+  // started far too close to the middle and the belly got pulled in with them. The real body is as wide as the model is
+  // just under the arms: when that is much wider than what we found, the shoulders are out there and the arms are thick.
+  let fat = false;
+  {
+    const lo = crotchY + 0.15 * (H - crotchY), hi = a + b * shoulderX - 0.18 * H;
+    const xs = points.filter((p) => p.y > lo && p.y < hi).map((p) => Math.abs(p.x)).sort((u, v) => u - v);
+    if (xs.length > 40) {
+      const bodyW = xs[Math.floor(xs.length * 0.95)];
+      if (bodyW > shoulderX * 1.5 && bodyW < 0.3 * H) { shoulderX = bodyW; ({ a, b } = fitArm(shoulderX)); fat = true; }
+    }
   }
   const shoulderY = a + b * shoulderX;
   const wristY = a + b * wristX;
@@ -105,7 +121,7 @@ export function findLandmarks(points, H) {
   const legX = knee.length ? knee.reduce((s, p) => s + Math.abs(p.x), 0) / knee.length : 0.08 * H;
   const hipY = crotchY + 0.04 * H;
   const waistY = hipY + 0.06 * H;
-  return { H, crotchY, hipY, waistY, kneeY, legX, shoulderX, shoulderY, wristX, wristY, neckY };
+  return { H, crotchY, hipY, waistY, kneeY, legX, shoulderX, shoulderY, wristX, wristY, neckY, fat };
 }
 
 const BONES = ['root', 'hips', 'spine', 'neck', 'head', 'lSh', 'lEl', 'lHand', 'rSh', 'rEl', 'rHand',
@@ -204,6 +220,7 @@ export function buildAutoRig(scene, { height, rotationY = 0, neckFrac = null, sh
     for (let i = 0; i < p.count; i += step) points.push({ x: p.getX(i), y: p.getY(i), z: p.getZ(i) });
   }
   const L = findLandmarks(points, height);
+  if (L.fat) arms = { above: 0.17, below: 0.15, stiff: true, ...arms }; // (thick arms on a round body: a wider band that leaves the chest sooner)
   // some models (a big chin or beard hanging down to the collar) fool the neck search;
   // the roster can say where the neck is, as a fraction of the height
   if (neckFrac) L.neckY = neckFrac * L.H;
