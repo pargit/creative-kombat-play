@@ -331,14 +331,19 @@ export async function loadAnimated(url, height, poseClip = null) {
 // materials (so an effect can make it glow and fade) and normals worked out if the file has none.
 export async function loadProp(url, height, type) {
   const base = await loadModelFile(url, type);
-  const src = base.scene.clone(true);
+  const src = SkeletonUtils.clone(base.scene); // (not scene.clone: a rigged model would keep using the original bones and tear into spikes)
   src.traverse((o) => {
     if (!o.isMesh) return;
     if (!o.geometry.attributes.normal) { o.geometry = o.geometry.clone(); o.geometry.computeVertexNormals(); }
     o.material = o.material.clone();
     o.frustumCulled = false;
   });
-  const box = new THREE.Box3().setFromObject(src), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+  // a rigged model is drawn by its bones, not by its raw geometry: measure the posed vertices (the plain box is wrong, often by a lot)
+  let skinned = false;
+  src.traverse((o) => { if (o.isSkinnedMesh) skinned = true; });
+  src.updateMatrixWorld(true);
+  src.traverse((o) => { if (o.isSkinnedMesh) o.skeleton.update(); });
+  const box = new THREE.Box3().setFromObject(src, skinned), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
   src.position.sub(c);
   const holder = new THREE.Group();
   holder.add(src);
