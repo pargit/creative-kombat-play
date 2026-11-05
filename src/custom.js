@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { Effect, strike, registerEffect, tigerMesh } from './effects.js';
 import { DOT } from './fx.js';
-import { loadProp } from './rig.js';
+import { loadProp, createRig } from './rig.js';
 import { libraryFx, findThing } from './library.js';
 
 export const STEPS = {
@@ -24,6 +24,7 @@ export const STEPS = {
   sky: { label: 'From the sky', anim: 'taunt', help: 'A target locks on them and it comes down from above: a meteor, lightning...' },
   blast: { label: 'Blast around you', anim: 'gold', body: true, help: 'You charge up and blast everything round you. Short range!' },
   summon: { label: 'Summon a beast', anim: 'throw', model: true, help: 'A beast runs in from behind you and pounces on them (a tiger, or your own model)' },
+  double: { label: 'Summon your fighter', anim: 'taunt', body: true, help: 'Your own fighter (your model) appears and fights them for you with real moves: it walks up, punches and kicks, never misses and gets out of the way of their attacks. Each hit is one of its moves.' },
   stomp: { label: 'Giant stomp', anim: 'taunt', model: true, help: 'Something giant comes down on them from above and crushes them (a boot, or your own model)' },
   cage: { label: 'Cage', anim: 'throw', help: 'Bars slam down round them: stuck, taking damage' },
   clones: { label: 'Shadow clones', anim: 'gold', help: 'Shadow copies of you appear and rush them, one after another' },
@@ -136,6 +137,7 @@ export const modelFx = () => ({ frames: 70, carry: false, reach: 12, hitFrom: 0.
 // "summon a tiger that pounces on them, then a giant foot stomps them, then explode"
 // → steps: summon, stomp, blast. Each piece (split at "then") becomes a step.
 const STEP_KW = [
+  [/\b(summon(s|ed)? (myself|my (own )?(fighter|model|character|self))|my (own )?(fighter|model|character) (is summoned|fights|comes|appears)|fights? (for|instead of) me|stand-?in|body ?double|another me|second me|clone of me that fights)\b/, 'double'],
   [/\b(summon|summons|calls?|tiger|lion|wolf|wolves|dog|bear|dragon|beast|monster|creature|pounce|shark|horse|bull|dinosaur|t-?rex)\b/, 'summon'],
   [/\b(stomp|stomps|foot|boot|giant|crush|crushes|squash|anvil|step on|smash(es)? (them )?from above)\b/, 'stomp'],
   [/\b(cage|caged|trap|traps|prison|jail|bars|locks? (them )?up)\b/, 'cage'],
@@ -635,6 +637,62 @@ class Clones extends Step {
     });
   }
 }
+class Double extends Step {
+  // your own fighter, summoned to fight for you: the real rig of your fighter (so it is the right size, stands on the floor and moves like you),
+  // walking up and using real moves. It never misses, and when they attack it steps out of the way, then counters. All of it is driven by the
+  // frame count and the opponent's state only, so it plays out the same on both phones online.
+  start() {
+    const ctx = this.fx.ctx;
+    this.frames = 60 + this.st.hits * 45;
+    this.x = this.o.pos.x - this.d * 1.3; this.dir = this.d; this.swing = -1; this.n = 0; this.nextSwing = 24; this.ready = false;
+    this.pose = { anim: 'idle', phase: null, pt: 0 }; this.back = false;
+    try {
+      this.rig = createRig(this.o.def);
+      Promise.resolve(this.rig.ready).then(() => { this.ready = true; });
+      ctx.scene.add(this.rig.object); this.rig.object.visible = false;
+    } catch { this.rig = null; }
+    ctx.sfx.teleport?.();
+    ctx.particles.burst(this.x, 1, 0.2, { count: 30, color: this.color, speed: 0.1, gravity: 0 });
+  }
+  tick(t) {
+    const o = this.o, opp = this.opp;
+    o.invuln = 2; o.vel.x = 0; this.t = t; this.back = false;
+    const dir = Math.sign(opp.pos.x - this.x) || this.dir, gap = (opp.pos.x - this.x) * dir;
+    this.dir = dir;
+    const COMBO = ['punch', 'cross', 'punch', 'kick'];
+    if (this.swing >= 0) {
+      const u = t - this.swing, anim = COMBO[this.n % COMBO.length];
+      const phase = u < 4 ? 'startup' : u < 8 ? 'active' : 'recovery', pt = u < 4 ? u / 4 : u < 8 ? (u - 4) / 4 : Math.min(1, (u - 8) / 5);
+      this.pose = { anim, phase, pt };
+      if (u === 4) this.hit(this.x + dir * 0.4);
+      if (u >= 13) { this.swing = -1; this.n++; this.nextSwing = t + 30; this.pose = { anim: 'idle', phase: null, pt: 0 }; }
+    } else if (t > 18) {
+      if (opp.move && gap < 2.8 && gap > -0.5) { this.x -= dir * 0.24; this.back = true; this.pose = { anim: 'walk', phase: null, pt: 0 }; this.nextSwing = Math.min(this.nextSwing, t + 3); } // out of the way of their attack, then the counter
+      else if (gap > 1.3) { this.x += dir * Math.min(0.36, 0.2 + (gap - 1.3) * 0.05) * this.st.speed; this.pose = { anim: 'walk', phase: null, pt: 0 }; }
+      else if (t >= this.nextSwing && this.hits < this.st.hits) { this.swing = t; this.fx.ctx.sfx.whoosh?.(); }
+      else this.pose = { anim: 'idle', phase: null, pt: 0 };
+    }
+    this.x = Math.max(-8.6, Math.min(8.6, this.x));
+    if (this.hits >= this.st.hits && this.swing < 0) return t > this.frames - 40 || t > 40 + this.hits * 14;
+    if (t >= this.frames) { while (this.hits < this.st.hits) this.hit(this.x + dir * 0.4); return true; } // (never leaves a hit unplayed)
+    return false;
+  }
+  render(time) {
+    const rig = this.rig; if (!rig) return;
+    const dt = this.last ? Math.min(0.05, Math.max(0, time - this.last)) : 1 / 60; this.last = time;
+    const t = this.t || 0;
+    rig.object.visible = this.ready && t > 1;
+    rig.setOpacity?.(Math.min(1, t / 10));
+    rig.object.position.set(this.x, 0, 0);
+    rig.setFacing(this.dir);
+    rig.update(dt, this.pose.anim, { t, phase: this.pose.phase, pt: this.pose.pt, back: this.back, moveId: this.swing >= 0 ? `dbl${this.n}` : '', duration: 13 });
+  }
+  end() {
+    this.g.visible = false;
+    if (this.rig) { this.fx.ctx.scene.remove(this.rig.object); try { this.rig.dispose?.(); } catch { /* (already gone) */ } this.rig = null; }
+    this.fx.ctx.particles.burst(this.x, 1, 0.2, { count: 24, color: this.color, speed: 0.08, gravity: 0 });
+  }
+}
 class Quake extends Step {
   start() { this.x0 = this.o.pos.x + this.d * 0.4; this.mat = new THREE.MeshBasicMaterial({ color: '#2b2118', transparent: true, depthWrite: false }); this.glow = glowMat(this.color, 0.8); this.segs = 0; this.fx.ctx.sfx.thud?.(); this.fx.ctx.shake(0.4); }
   tick(t) {
@@ -776,7 +834,7 @@ class Free extends Step {
   }
   end() { this.g.visible = false; this.g.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
 }
-const STEP_CLASS = { free: Free, shot: Shot, beam: Beam, dash: Dash, teleport: Teleport, sky: Sky, blast: Blast, summon: Summon, stomp: Stomp, cage: Cage, clones: Clones, quake: Quake };
+const STEP_CLASS = { free: Free, shot: Shot, beam: Beam, dash: Dash, teleport: Teleport, sky: Sky, blast: Blast, summon: Summon, double: Double, stomp: Stomp, cage: Cage, clones: Clones, quake: Quake };
 
 // ── the special: its steps, one after another ────────────────────────────────────
 class CustomSpecial extends Effect {

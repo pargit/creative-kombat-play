@@ -800,7 +800,12 @@ function buildArenaEdit() {
     <div class="row" hidden><label class="f">Ground<select id="ae-ground"></select></label></div>
     <div class="row" hidden><label class="f">Sky<select id="ae-sky"></select></label><label class="f">Weather<select id="ae-weather"></select></label><label class="note">Colour <input type="color" id="ae-accent"></label></div>
     <div hidden><div class="note">Around the arena (up to 5):</div><div class="chips" id="ae-props"></div></div>
-    <div class="row" id="ae-picrow" hidden><span class="note">This arena has an AI-painted picture behind it.</span><button class="mini ghost" id="ae-nopic">REMOVE PICTURE</button></div>
+    <div class="box"><div class="note">Your own place, FREE: a picture or a 3D arena you already have.</div>
+      <div class="row"><button class="mini" id="ae-mypic">🖼 USE MY OWN PICTURE</button><button class="mini" id="ae-my3d">📦 USE MY OWN 3D ARENA (.glb)</button></div>
+      <div class="row" data-only="paid"><button class="mini ai" id="ae-photo3d">📷 MAKE A 3D ARENA FROM A PHOTO</button><span class="note" id="ae-p3dcost"></span></div>
+      <p class="note">The picture is ONLY the background: the game builds a real fighting stage in front of it (describe the place and press BUILD IT for the ground and things around, or pick them yourself). Wide pictures work best: it is cropped to a wide strip. A 3D arena stands behind the fighters, who fight on the flat ground in front of it: it is scenery, not a place to walk into. The 3D arena is kept on your account, so it needs an online account.</p>
+      <input type="file" id="ae-picfile" accept="image/jpeg,image/png,image/webp" hidden><input type="file" id="ae-3dfile" accept=".glb,model/gltf-binary" hidden><input type="file" id="ae-photofile" accept="image/jpeg,image/png" hidden></div>
+    <div class="row" id="ae-picrow" hidden><span class="note" id="ae-picnote">This arena has a picture behind it.</span><button class="mini ghost" id="ae-turn" hidden>↻ TURN 3D ARENA</button><button class="mini ghost" id="ae-nopic">REMOVE PICTURE</button></div>
     <p class="note">The arena shows behind this menu as you change it. Hide the menu to look: <button class="mini" id="ae-peek">LOOK (3 s)</button></p>
     <div class="box" data-only="paid"><label class="f">Not quite right? Say what to change<textarea id="ae-tweak" placeholder="e.g. make it night, add snow, the castle should be much bigger, more trees on the left"></textarea></label><div class="row"><button class="mini ai" id="ae-tw">✨ AI CHANGE (3 designs)</button></div><p class="note">The AI paints the arena again with your change added to the description, so it costs the same as painting it.</p></div>
     <div class="row"><button class="mini ghost" id="ae-undo" disabled>↶ UNDO</button></div>
@@ -827,7 +832,7 @@ function buildArenaEdit() {
     AE.undo.push(JSON.parse(JSON.stringify(AE.cfg))); $('#ae-undo').disabled = false;
     AE.autoName = typed ? '' : r.name;
     AE.cfg = { ...AE.cfg, name: r.name, ground: r.ground, sky: r.sky, weather: r.weather, accent: r.accent, props: r.props, scene: r.scene };
-    delete AE.cfg.backdrop; delete AE.cfg.floor;
+    if (!AE.cfg.backdrop?.own) delete AE.cfg.backdrop; delete AE.cfg.floor; delete AE.cfg.model3d; // (the player's own picture stays as the background)
     $('#ae-err').innerHTML = r.guess
       ? `<span class="warn">I don't know that place${r.left.length ? ` ("${esc(r.left.join(' '))}")` : ''}, so this is a plain arena.</span> Tap WHAT CAN IT BUILD? to see the places I know, or use the paid AI for anything else.`
       : `<span class="good">🗺 Built${r.matched.length ? `: ${esc([...new Set(r.matched)].join(', '))}` : ''}.</span> Press LOOK to see it, then SAVE. Not quite right? Change the description and press BUILD IT again.`;
@@ -835,7 +840,30 @@ function buildArenaEdit() {
   };
   $('#ae-list').onclick = () => openLibrary((say) => { $('#ae-desc').value = say; $('#ae-err').innerHTML = '<span class="good">Written in the description.</span> Press BUILD IT, or change the words first.'; },
     ARENA_LIST, 'What the free arena builder can make', 'Tap one to write it in the description. Add a time or weather to any place ("... at night", "... in the rain", "... in thick fog"), a colour ("a red floor"), or a country flag ("the israeli flag"). A place that is not here: use the paid AI.');
-  $('#ae-nopic').onclick = () => { delete AE.cfg.backdrop; delete AE.cfg.floor; showArena(); api.previewArena(AE.cfg); };
+  $('#ae-nopic').onclick = () => { delete AE.cfg.backdrop; delete AE.cfg.floor; delete AE.cfg.model3d; showArena(); api.previewArena(AE.cfg); };
+  $('#ae-turn').onclick = () => { if (!AE.cfg.model3d) return; AE.cfg.model3d = { ...AE.cfg.model3d, rot: ((AE.cfg.model3d.rot || 0) + 1) % 4 }; api.previewArena(AE.cfg); };
+  // ── the player's own place: free, because it costs nothing to make ──
+  $('#ae-mypic').onclick = () => $('#ae-picfile').click();
+  $('#ae-picfile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) ownArenaPicture(f); };
+  $('#ae-my3d').onclick = () => {
+    if (api.offline?.() || !session()?.token) { $('#ae-err').innerHTML = '<span class="bad">Log in to an online account (ACCOUNT on the title screen): a 3D arena is kept on your account.</span>'; return; }
+    $('#ae-3dfile').click();
+  };
+  $('#ae-3dfile').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    if (!/\.glb$/i.test(f.name)) { $('#ae-err').innerHTML = '<span class="bad">Use a .glb file.</span>'; return; }
+    if (f.size > 20 * 1048576) { $('#ae-err').innerHTML = `<span class="bad">That file is ${(f.size / 1048576).toFixed(0)} MB. The limit is 20 MB: make it smaller in the tool you used (fewer polygons, 1K textures).</span>`; return; }
+    take3dArena(await f.arrayBuffer(), 'Your 3D arena');
+  };
+  $('#ae-photo3d').onclick = () => {
+    if (api.offline?.() || !session()?.token) { $('#ae-err').innerHTML = '<span class="bad">Log in to an online account (ACCOUNT on the title screen) to make a 3D arena from a photo.</span>'; return; }
+    if (A3D.ready === false) { $('#ae-err').innerHTML = '<span class="warn">Making a 3D arena from a photo is not switched on yet: the server needs its Tripo key (TRIPO_API_KEY).</span>'; return; }
+    if (!confirm(`Make a 3D arena from a photo?
+
+This uses ${A3D.cost ?? 'several'} AI designs. They are spent even if you do not like the result, so pick a clear photo of one place: a room, a street, a building, taken from a little way back.`)) return;
+    $('#ae-photofile').click();
+  };
+  $('#ae-photofile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) arenaPhotoTo3d(f); };
   $('#ae-peek').onclick = () => { const s = $('#screen-arena-edit'); s.style.opacity = '0'; setTimeout(() => { s.style.opacity = ''; }, 3000); };
   $('#ae-save').onclick = async () => {
     readArena();
@@ -863,7 +891,7 @@ function buildArenaEdit() {
     if (!a) return;
     AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), backdrop: a.backdrop?.url ? { url: a.backdrop.url } : AE.cfg.backdrop, floor: a.floor?.url ? { url: a.floor.url } : AE.cfg.floor,
       ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather, accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent };
-    delete AE.cfg.scene;
+    delete AE.cfg.scene; delete AE.cfg.model3d;
     showArena(); api.previewArena(AE.cfg);
     $('#ae-err').innerHTML = await paintedNote(AE.cfg, 'Painted by the AI');
   };
@@ -880,7 +908,7 @@ function buildArenaEdit() {
     AE.undo.push(before); $('#ae-undo').disabled = false;
     AE.cfg = { ...AE.cfg, name: String(a.name || AE.cfg.name).slice(0, 24), backdrop: a.backdrop?.url ? { url: a.backdrop.url } : AE.cfg.backdrop, floor: a.floor?.url ? { url: a.floor.url } : AE.cfg.floor,
       ground: a.ground in GROUNDS ? a.ground : AE.cfg.ground, sky: a.sky in SKIES ? a.sky : AE.cfg.sky, weather: a.weather in WEATHER ? a.weather : AE.cfg.weather, accent: /^#[0-9a-f]{6}$/i.test(a.accent) ? a.accent : AE.cfg.accent };
-    delete AE.cfg.scene;
+    delete AE.cfg.scene; delete AE.cfg.model3d;
     $('#ae-desc').value = text; $('#ae-tweak').value = '';
     showArena(); api.previewArena(AE.cfg);
     $('#ae-err').innerHTML = await paintedNote(AE.cfg, 'Painted again with your change');
@@ -896,18 +924,104 @@ function showArena() {
   for (const el of document.querySelectorAll('#screen-arena-edit [data-only]')) { el.hidden = el.dataset.only !== AE.mode; el.style.display = el.hidden ? 'none' : ''; }
   $('#ae-name').value = c.name; $('#ae-ground').value = c.ground; $('#ae-sky').value = c.sky; $('#ae-weather').value = c.weather; $('#ae-accent').value = c.accent || '#ffb347';
   for (const b of $('#ae-props').children) b.classList.toggle('on', c.props.includes(b.dataset.k));
-  $('#ae-picrow').hidden = !c.backdrop?.url;
+  $('#ae-picrow').hidden = !c.backdrop?.url && !c.model3d?.url;
+  $('#ae-turn').hidden = !c.model3d?.url;
+  $('#ae-picnote').textContent = c.model3d?.url ? 'This arena has a 3D place behind the fight.' : 'This arena has a picture behind it.';
+  $('#ae-nopic').textContent = c.model3d?.url ? 'REMOVE 3D ARENA' : 'REMOVE PICTURE';
 }
 function editArena(rec) {
   AE.rec = rec;
   AE.cfg = rec ? { ...rec, props: [...rec.props] } : { id: newId('arena'), created: Date.now(), ...describeArena('', 'My Arena'), props: ['trees', 'rocks'] };
-  AE.mode = rec?.backdrop?.url ? 'paid' : 'free'; AE.undo = [];
+  AE.mode = rec?.backdrop?.url || rec?.model3d?.url ? 'paid' : 'free'; AE.undo = [];
   $('#ae-title').textContent = rec ? `EDIT ${rec.name}` : 'NEW ARENA';
   $('#ae-desc').value = ''; $('#ae-err').textContent = '';
   showArena();
   api.show('screen-arena-edit');
   api.previewArena(AE.cfg);
-  if (session()?.token && !api.offline?.()) aiCall('credits');
+  if (session()?.token && !api.offline?.()) { aiCall('credits'); arenaPhotoInfo(); } else $('#ae-p3dcost').textContent = 'needs an online account';
+}
+
+// ── the player's own arena: a picture (free) or a 3D place (free; a photo turned into 3D costs designs, as it costs us) ──
+const A3D = { cost: null, ready: null, busy: false };
+async function arenaPhotoInfo() {
+  try { const j = await photoCall({ action: 'info' }); if (j.ok) { A3D.cost = j.cost; A3D.ready = j.ready; $('#ae-p3dcost').textContent = j.ready ? (j.cost ? `${j.cost} AI designs` : 'free for admins') : 'not set up on the server yet'; } } catch { /* the button just stays */ }
+}
+// the picture, cropped from its middle to the wide strip the backdrop is (21:9) and shrunk to 2048 px
+function wideStrip(file) {
+  return new Promise((done, fail) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      const W = Math.min(2048, im.width), H = Math.round(W * 9 / 21), c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      let sw = im.width, sh = sw * 9 / 21;
+      if (sh > im.height) { sh = im.height; sw = sh * 21 / 9; } // (a tall picture: the widest strip it has)
+      c.getContext('2d').drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, 0, 0, W, H);
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => (b ? done({ blob: b, dataUrl: c.toDataURL('image/jpeg', 0.88) }) : fail(new Error('That picture could not be used.'))), 'image/jpeg', 0.88);
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); fail(new Error('That picture could not be read.')); };
+    im.src = url;
+  });
+}
+async function ownArenaPicture(file) {
+  const err = $('#ae-err');
+  try {
+    err.textContent = 'Preparing your picture…';
+    const { blob, dataUrl } = await wideStrip(file);
+    readArena();
+    let url = null;
+    try { url = await cloud.uploadArenaFile(AE.cfg.id, 'pic', await blob.arrayBuffer(), 'jpg', 'your arena picture'); } catch (e) { console.error('arena picture upload', e); }
+    AE.undo.push(JSON.parse(JSON.stringify(AE.cfg))); $('#ae-undo').disabled = false;
+    AE.cfg = { ...AE.cfg, backdrop: { url: url || dataUrl, own: true } };
+    delete AE.cfg.floor; delete AE.cfg.model3d;
+    showArena(); api.previewArena(AE.cfg);
+    err.innerHTML = url ? '<span class="good">🖼 Your picture is the arena background.</span> Press LOOK to see it, then SAVE.'
+      : '<span class="warn">🖼 Your picture is the arena background, kept on this device only</span> (log in to an online account to keep it on any device). Press LOOK to see it, then SAVE.';
+  } catch (e) { err.innerHTML = `<span class="bad">${esc(e.message || 'That picture did not work.')}</span>`; }
+}
+// a .glb (the player's own, or made from a photo) becomes the arena's 3D place; it is kept on the account
+async function take3dArena(buf, what) {
+  const err = $('#ae-err');
+  try {
+    if (new TextDecoder().decode(new Uint8Array(buf, 0, 4)) !== 'glTF') throw new Error('That is not a .glb 3D file.');
+    err.textContent = `Uploading ${what}…`;
+    readArena();
+    const url = await cloud.uploadArenaFile(AE.cfg.id, '3d', buf, 'glb', what.toLowerCase());
+    if (!url) throw new Error('Log in to an online account first: a 3D arena is kept on your account.');
+    AE.undo.push(JSON.parse(JSON.stringify(AE.cfg))); $('#ae-undo').disabled = false;
+    AE.cfg = { ...AE.cfg, model3d: { url, rot: 0 } };
+    delete AE.cfg.backdrop; delete AE.cfg.floor; delete AE.cfg.scene;
+    showArena(); api.previewArena(AE.cfg);
+    err.innerHTML = '<span class="good">📦 Your 3D arena stands behind the fight.</span> Press LOOK to see it. If it faces the wrong way, press TURN 3D ARENA. Then SAVE.';
+  } catch (e) { err.innerHTML = `<span class="bad">${esc(e.message || 'That file did not work.')}</span>`; }
+}
+async function arenaPhotoTo3d(file) {
+  if (A3D.busy) return;
+  const info = $('#ae-err'), btn = $('#ae-photo3d');
+  A3D.busy = true; btn.disabled = true;
+  const stop = (html) => { info.innerHTML = html; A3D.busy = false; btn.disabled = false; aiCall('credits'); };
+  try {
+    info.textContent = 'Preparing your photo…';
+    const image = await shrinkPhoto(file);
+    const s = await photoCall({ action: 'start', kind: 'arena', image });
+    if (!s.ok) { if (s.buy) openBuy(); return stop(`<span class="bad">${esc(s.error || 'It did not work. Try again.')}</span>`); }
+    const t0 = Date.now();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 4000));
+      if (Date.now() - t0 > 6 * 60 * 1000) return stop('<span class="bad">The 3D service is taking too long. Try again in a few minutes. If it keeps happening, tell me.</span>');
+      const c = await photoCall({ action: 'check', taskId: s.taskId });
+      if (!c.ok) return stop(`<span class="bad">${esc(c.error || 'It did not work.')}</span>`);
+      if (!c.done) { info.textContent = `Making your 3D arena… ${c.progress ? `${Math.round(c.progress)}%` : (c.status === 'queued' ? 'waiting in line' : 'starting')} (about a minute or two)`; continue; }
+      info.textContent = 'Downloading your 3D arena…';
+      const g = await fetch(c.url);
+      if (!g.ok) return stop('<span class="bad">The 3D arena was made but could not be downloaded. Try again in a moment.</span>');
+      const buf = await g.arrayBuffer();
+      photoCall({ action: 'finish', url: c.url });
+      A3D.busy = false; btn.disabled = false; aiCall('credits');
+      await take3dArena(buf, 'Your 3D arena');
+      return;
+    }
+  } catch (e) { stop(`<span class="bad">${esc(e.message || 'It did not work. Try again.')}</span>`); }
 }
 
 // ── tutorials ────────────────────────────────────────────────────────────────────

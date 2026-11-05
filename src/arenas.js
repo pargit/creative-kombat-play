@@ -5,6 +5,7 @@
 // An arena: { id, name, ground, sky, weather, props: [...], accent }
 
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { sanitizeScene, buildScene } from './scene.js';
 
 export const GROUNDS = {
@@ -150,8 +151,9 @@ export class CustomArena {
     this.fogRange = cfg.weather === 'fog' ? [4, 26] : [12, 52];
     scene.background = new THREE.Color(S.horizon);
     scene.fog = new THREE.Fog(S.horizon, 20, 60);
-    this.group.add(skyDome(S));
-    if (cfg.backdrop?.url) this.addBackdrop(cfg.backdrop.url); // (the AI-painted background of the place, behind the fight)
+    this.skyDome = skyDome(S); this.group.add(this.skyDome);
+    if (cfg.backdrop?.url) this.addBackdrop(cfg.backdrop.url, !!cfg.backdrop.own); // (the AI-painted background of the place, behind the fight)
+    if (cfg.model3d?.url) this.addModel3d(cfg.model3d); // (a 3D place, standing behind the fight)
     // lights
     this.group.add(new THREE.HemisphereLight(S.top === '#000000' ? '#8aa0ff' : S.horizon, '#6b5a48', 1.15 * S.light + 0.2));
     const sun = new THREE.DirectionalLight(S.sun, 2.6 * S.light);
@@ -169,10 +171,17 @@ export class CustomArena {
     if (cfg.backdrop?.url) { ground.geometry.dispose(); ground.geometry = new THREE.PlaneGeometry(200, 140); ground.position.z = -35; } // (the floor runs all the way to the painted background)
     if (cfg.floor?.url) this.addFloor(cfg.floor.url, ground);
     // the detailed arena: a recipe (painted floor + objects), re-checked here whoever made it
-    const sc = cfg.scene && !cfg.backdrop?.url ? sanitizeScene(cfg.scene) : null;
+    const sc = cfg.scene && (!cfg.backdrop?.url || cfg.backdrop.own) && !cfg.model3d?.url ? sanitizeScene(cfg.scene) : null;
+    this.animated = [];
     if (sc) buildScene(this, sc, ground);
     const ring = new THREE.Mesh(new THREE.RingGeometry(8.6, 8.85, 64), new THREE.MeshBasicMaterial({ color: cfg.accent || '#ffb347', transparent: true, opacity: 0.55, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.scale.set(1, 0.32, 1); ring.position.y = 0.01; this.group.add(ring);
+    if (cfg.backdrop?.own) { // (a real fighting stage in front of the player's picture)
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(11, 11.6, 0.35, 64), new THREE.MeshStandardMaterial({ map: gt, roughness: 0.8 }));
+      st.position.y = -0.17; st.receiveShadow = true; this.group.add(st);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(11.2, 0.14, 8, 64), new THREE.MeshBasicMaterial({ color: cfg.accent || '#ffb347' }));
+      rim.rotation.x = Math.PI / 2; rim.position.y = 0.02; this.group.add(rim);
+    }
     // sky things
     if (S.stars) {
       const n = 900, p = new Float32Array(n * 3);
@@ -184,8 +193,14 @@ export class CustomArena {
       body.position.set(S.planet ? -22 : 14, S.planet ? 20 : 22, -55); this.group.add(body);
     }
     // the props, round the back and the sides (never in the fight or in front of the camera)
-    this.animated = [];
-    if (!cfg.backdrop?.url && !sc) for (const p of cfg.props || []) this.addProps(p, R, cfg);
+    if ((!cfg.backdrop?.url || cfg.backdrop.own) && !cfg.model3d?.url && !sc) for (const p of cfg.props || []) this.addProps(p, R, cfg);
+    // dust drifting in the sunlight (sunny skies without weather), so the air isn't empty
+    if (sc && !sc.room && !['night', 'space', 'storm'].includes(cfg.sky) && cfg.weather === 'none') {
+      const n = 140, pos = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) pos.set([(R() - 0.5) * 50, 0.4 + R() * 9, -26 + R() * 34], i * 3);
+      const dust = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pos, 3)), new THREE.PointsMaterial({ color: '#fff3d0', size: 0.09, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+      dust.frustumCulled = false; this.group.add(dust); this.animated.push({ kind: 'dust', m: dust, n });
+    }
     // weather
     this.weather = null;
     if (['rain', 'snow', 'embers', 'leaves'].includes(cfg.weather)) {
@@ -201,8 +216,9 @@ export class CustomArena {
     scene.add(this.group);
   }
   // a wide picture on a curved wall behind the arena, its horizon at the fighters' eye level
-  addBackdrop(url) {
-    const R = 55, H = 49, arc = Math.PI * 2 / 3;
+  addBackdrop(url, own) {
+    // (the player's own picture is only a backdrop: a smaller wall, so the sky and the arena in front still show)
+    const R = 55, H = own ? 30 : 49, arc = own ? 30 * 21 / 9 / 55 : Math.PI * 2 / 3;
     new THREE.TextureLoader().setCrossOrigin('anonymous').load(url, (tex) => {
       if (this.disposed) { tex.dispose(); return; }
       tex.colorSpace = THREE.SRGBColorSpace;
@@ -216,10 +232,28 @@ export class CustomArena {
         const px = x.getImageData(0, 0, 32, 1).data; let r = 0, g = 0, b = 0;
         for (let i = 0; i < 32; i++) { r += px[i * 4]; g += px[i * 4 + 1]; b += px[i * 4 + 2]; }
         const col = new THREE.Color(`rgb(${Math.round(r / 32)},${Math.round(g / 32)},${Math.round(b / 32)})`);
-        if (this.scene.fog) { this.scene.fog.color.copy(col); this.scene.fog.near = 25; this.scene.fog.far = 62; }
-        this.scene.background = col;
+        if (!own && this.scene.fog) { this.scene.fog.color.copy(col); this.scene.fog.near = 25; this.scene.fog.far = 62; }
+        if (!own) this.scene.background = col;
       } catch { /* (can't read the picture's colours: the sky's own colours stay) */ }
     }, undefined, () => { /* the picture didn't load: the sky and ground are still there */ });
+  }
+  // a 3D place (the player's own .glb, or one made from a photo): sized to fill the view behind the fight, standing on the floor, its front 9 units back.
+  // The fighters stay on the flat ground in front of it, so it is scenery, not a place to walk into. `rot` turns it in quarter turns.
+  addModel3d(m) {
+    new GLTFLoader().setCrossOrigin('anonymous').load(m.url, (gltf) => {
+      if (this.disposed) return;
+      const obj = gltf.scene, rot = (m.rot || 0) * Math.PI / 2;
+      obj.rotation.y = rot;
+      obj.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; for (const mat of [].concat(o.material || [])) mat.side = THREE.DoubleSide; } });
+      const box = new THREE.Box3().setFromObject(obj), size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
+      if (!(size.x > 0 && size.y > 0 && size.z > 0)) return;
+      const k = Math.min(70 / Math.max(size.x, size.z), 36 / size.y);
+      const holder = new THREE.Group(); holder.add(obj);
+      obj.position.set(-mid.x, -box.min.y, -mid.z);
+      holder.scale.setScalar(k);
+      holder.position.set(0, 0, -(9 + size.z * k / 2));
+      this.group.add(holder);
+    }, undefined, () => { /* the file didn't load: the sky and ground are still there */ });
   }
   // the AI-painted floor: a seamless tile, repeated over the whole ground
   addFloor(url, ground) {
@@ -302,7 +336,18 @@ export class CustomArena {
     }
   }
   update(t) {
-    for (const a of this.animated) if (a.kind === 'flicker') a.m.visible = Math.sin(t * 7 + a.ph) > -0.85;
+    for (const a of this.animated) {
+      if (a.kind === 'flicker') a.m.visible = Math.sin(t * 7 + a.ph) > -0.85;
+      else if (a.kind === 'wave') { // (a flag: the cloth ripples, more towards the loose end)
+        const pos = a.m.geometry.attributes.position, b = a.base;
+        for (let i = 0; i < pos.count; i++) { const u = b[i * 3] / a.w + 0.5; pos.setZ(i, Math.sin(u * 7 - t * 4.5 + a.ph) * 0.2 * u * a.w * 0.5); pos.setY(i, b[i * 3 + 1] + Math.sin(u * 5 - t * 3 + a.ph) * 0.05 * u); }
+        pos.needsUpdate = true;
+      } else if (a.kind === 'dust') {
+        const p = a.m.geometry.attributes.position;
+        for (let i = 0; i < a.n; i++) { p.setY(i, p.getY(i) + Math.sin(t * 0.6 + i) * 0.0025); p.setX(i, p.getX(i) + 0.004 + Math.sin(t * 0.3 + i * 1.7) * 0.003); if (p.getX(i) > 25) p.setX(i, -25); }
+        p.needsUpdate = true;
+      }
+    }
     const w = this.weather;
     if (!w) return;
     const p = w.pts.geometry.attributes.position, fall = { rain: 0.35, snow: 0.03, embers: -0.025, leaves: 0.035 }[w.kind];

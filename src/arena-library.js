@@ -143,15 +143,31 @@ const PLACES = [
     ground: 'lava', sky: 'storm', weather: 'embers', accent: '#ff6a1a', floorColor: '#2a1d1a',
     floor: [oval(50, 62, 46, 72, { stroke: '#ff6a1a', lw: 0.7 }), line(10, 30, 36, 50, '#ff6a1a', 0.8), line(90, 28, 66, 52, '#ff6a1a', 0.8), line(20, 90, 44, 78, '#ff6a1a', 0.6), noise(0.3)],
     objects: [o('landmark', 0, -36, { k: 'volcano', c: '#2e2420', c2: '#ff6a1a', s: 1.3 }), ...sides('rock', 16, -9, 4, 6, { r: 1.4, c: '#1f1816' }), ...sides('cone', 24, -16, 3, 7, { r: 1.2, h: 5, c: '#3a2a24' }), ...sides('cone', 20, -6, 2, 5, { r: 0.5, h: 3, c: '#ff6a1a' })] },
-  { id: 'ring', indoor: true, name: 'Boxing Ring', re: /\b(boxing|boxing ring|wrestling|wrestling ring|mma|octagon|cage fight|fight club|fight night)\b/,
+  { id: 'courthouse', indoor: true, name: 'Courthouse', re: /\b(court ?house|court ?room|court of law|law court|judge'?s?|trial|tribunal|supreme court|justice)\b/,
+    ground: 'wood', sky: 'day', weather: 'none', accent: '#d8b04a', floorColor: '#7a5634',
+    floor: [...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => line(0, 14 + i * 9, 100, 14 + i * 9, '#5a3e24', 0.25)), frame(4, 18, 92, 76, '#d8b04a', 0.7, { alpha: 0.8 }), oval(50, 58, 28, 44, { fill: '#4a2e1a', alpha: 0.55 }), oval(50, 58, 24, 38, { stroke: '#d8b04a', lw: 0.8 }), { t: 'text', x: 50, y: 58, s: 'JUSTICE', size: 9, fill: '#d8b04a', alpha: 0.85 }, noise(0.3)],
+    objects: [o('box', 0, -17, { w: 18, h: 2.4, d: 2.6, c: '#4a2e1a' }), o('box', 0, -17, { w: 19, h: 0.25, d: 3.2, y: 2.4, c: '#2e1a0e' }), o('chair', 0, -18.6, { c: '#1c1c20', y: 2.4, s: 1.7 }), o('screen', 0, -21.5, { w: 7, h: 2.6, y: 6.5, txt: 'JUSTICE', c: '#3a2312', c2: '#f4d890' }),
+      ...sides('flagpole', 10, -19.5, 1, 0, { h: 8, flag: { bands: [B('#1f2f6a')], emblem: 'star', emblemColor: '#ffffff', emblemSize: 0.4 } }), o('box', -12, -12, { w: 2.6, h: 1.5, d: 2, c: '#4a2e1a' }),
+      o('fence', 14, -11, { w: 9, c: '#4a2e1a', c2: '#2e1a0e' }), row('chair', 10, -12.6, 5, 1.7, { c: '#5a3a22' }), ...sides('table', 9, -8, 1, 0, { w: 3.4, d: 1.3, c: '#5a3a22' }), ...sides('chair', 8, -9.8, 2, 1.4, { c: '#2a1a10' }),
+      ...sides('column', 17, -27, 1, 0, { r: 0.8, h: 14, c: '#e8dcc0', c2: '#cfc2a0' }), ...sides('bush', 13, -6, 1, 0, { r: 0.7, c: '#2f6a2a' })] },
+  { id: 'fightarena', indoor: true, name: 'Fighting Arena', re: /\b(fighting arena|fight arena|battle arena|combat arena|kombat arena|mma|octagon|cage fight|ufc|fight club|fight night|fighting hall|fighting cage|e-?sports? arena)\b/,
+    ground: 'concrete', sky: 'night', weather: 'none', accent: '#d8322a', floorColor: '#17171d',
+    floor: [rect(4, 16, 92, 80, '#1d1d24'), ...[0, 1, 2, 3, 4, 5, 6, 7].map((k) => { const a1 = (k * 45 + 22.5) * Math.PI / 180, a2 = ((k + 1) * 45 + 22.5) * Math.PI / 180; return { ...line(50 + 20 * Math.cos(a1), 58 + 38 * Math.sin(a1), 50 + 20 * Math.cos(a2), 58 + 38 * Math.sin(a2), '#d8322a', 1), alpha: 0.95 }; }), oval(50, 58, 26, 46, { stroke: '#ffffff', lw: 0.4, alpha: 0.3 }), { t: 'text', x: 50, y: 58, s: 'KOMBAT', size: 9, fill: '#d8322a', alpha: 0.55 }, noise(0.3)],
+    objects: [o('cage', 0, -11, { w: 34, h: 3.4 }), o('cage', -16, -6, { w: 10, h: 3.4, rot: 90 }), o('cage', 16, -6, { w: 10, h: 3.4, rot: 90 }), o('stands', 0, -22, { w: 64, h: 9, d: 12, c: '#26262e', c2: '#d8322a' }), o('screen', 0, -36, { w: 18, h: 7, y: 11, txt: 'KOMBAT', c: '#d8322a', c2: '#ffd23f' }), ...sides('lamp', 14, -20, 2, 12, { h: 11, c2: '#ffffff' })] },
+  { id: 'gym', indoor: true, name: 'Gym', re: /\b(gym|gymnasium|basketball|sports hall|indoor court|fitness)\b/,
+    ground: 'wood', sky: 'day', weather: 'none', accent: '#2f7fff', floorColor: '#c8964a',
+    floor: [...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => line(0, 14 + i * 9, 100, 14 + i * 9, '#b08038', 0.25)), frame(6, 22, 88, 70, '#ffffff', 0.9), line(50, 22, 50, 92, '#ffffff', 0.9), oval(50, 57, 20, 40, { stroke: '#ffffff', lw: 0.9 }), frame(6, 40, 16, 34, '#2f7fff', 0.9), frame(78, 40, 16, 34, '#2f7fff', 0.9), oval(14, 57, 14, 30, { stroke: '#ffffff', lw: 0.6 }), oval(86, 57, 14, 30, { stroke: '#ffffff', lw: 0.6 })],
+    objects: [o('hoop', -12, -12, { h: 3.6, rot: 90 }), o('hoop', 12, -12, { h: 3.6, rot: -90 }), o('stands', 0, -26, { w: 62, h: 7, d: 8, c: '#6a4a2e', c2: '#2f7fff' }), row('screen', -18, -39, 3, 18, { w: 8, h: 4, y: 7, txt: 'GO TEAM', c: '#d8322a', c2: '#ffffff' }), ...sides('bench', 14, -7, 1, 0, { w: 3, c: '#6b4a2e', c2: '#333333' }), ...sides('barrel', 17, -9, 1, 0, { c: '#2f7fff', c2: '#222222' })] },
+  { id: 'ring', indoor: true, name: 'Boxing Ring', re: /\b(boxing|boxing ring|wrestling|wrestling ring)\b/,
     ground: 'concrete', sky: 'night', weather: 'none', accent: '#d8322a', floorColor: '#2a2a30',
     floor: [rect(22, 30, 56, 62, '#2f5fb8'), frame(22, 30, 56, 62, '#ffffff', 1.2), oval(50, 61, 22, 36, { stroke: '#ffffff', lw: 0.6 }), frame(22, 30, 56, 62, '#d8322a', 0.5, { alpha: 0.9 })],
     objects: [...sides('cylinder', 14, 0, 1, 0, { r: 0.25, h: 2.2, c: '#d8322a' }), ...sides('cylinder', 14, -9, 1, 0, { r: 0.25, h: 2.2, c: '#d8322a' }), o('box', 0, -9, { w: 28, h: 0.07, d: 0.07, c: '#ffffff', y: 0.8 }), o('box', 0, -9, { w: 28, h: 0.07, d: 0.07, c: '#d8322a', y: 1.35 }), o('box', 0, -9, { w: 28, h: 0.07, d: 0.07, c: '#2f5fb8', y: 1.9 }),
       ...sides('chair', 17, -14, 4, 1.6, { c: '#3a3a42', dz: -1.2 }), ...sides('chair', 17, -17, 4, 1.6, { c: '#3a3a42', dz: -1.2 }), o('stage', 0, -26, { w: 36, h: 2, d: 6, c: '#1c1c22', c2: '#ffd23f', txt: 'FIGHT NIGHT' }), ...sides('lamp', 12, -20, 2, 14, { h: 9, c2: '#fff1c0' })] },
-  { id: 'stadium', indoor: true, name: 'Stadium', re: /\b(stadium|football|soccer|pitch|basketball|tennis|sports? (field|arena)|baseball|rugby|football field)\b/,
+  { id: 'stadium', indoor: true, name: 'Stadium', re: /\b(stadium|football|soccer|pitch|tennis|sports? (field|arena)|baseball|rugby|football field)\b/,
     ground: 'grass', sky: 'day', weather: 'none', accent: '#ffffff', floorColor: '#3f8a3a',
     floor: [rect(0, 14, 100, 84, '#3f8a3a'), ...[0, 1, 2, 3, 4].map((i) => rect(i * 20, 14, 10, 84, '#46963f', { alpha: 0.8 })), frame(8, 22, 84, 70, '#ffffff', 0.9), line(50, 22, 50, 92, '#ffffff', 0.9), oval(50, 57, 18, 36, { stroke: '#ffffff', lw: 0.9 }), frame(8, 40, 12, 34, '#ffffff', 0.8), frame(80, 40, 12, 34, '#ffffff', 0.8)],
-    objects: [o('box', 0, -34, { w: 80, h: 4, d: 6, c: '#8a8f98' }), o('box', 0, -38, { w: 80, h: 7, d: 6, c: '#7a7f88' }), o('box', 0, -42, { w: 80, h: 10, d: 6, c: '#6a6f78' }), ...[0, 1, 2].map((r) => row('sphere', -36, -33 - r * 4, 24, 3, { r: 0.4, y: 4.4 + r * 3, c: r % 2 ? '#e0233a' : '#2f7fff' })), ...sides('lamp', 34, -26, 1, 0, { h: 18, c2: '#fffbe0' }), o('box', -36, -2, { w: 0.2, h: 2.6, d: 7, c: '#ffffff' }), o('box', 36, -2, { w: 0.2, h: 2.6, d: 7, c: '#ffffff' })] },
+    objects: [o('stands', 0, -26, { w: 72, h: 11, d: 12, c: '#7a7f88', c2: '#e0233a' }), row('box', -24, -12, 9, 6, { w: 5.5, h: 1, d: 0.3, c: '#1c4aa8' }), o('goal', -14, -12, { w: 7.3, h: 2.4, d: 2, rot: 90 }), o('goal', 14, -12, { w: 7.3, h: 2.4, d: 2, rot: -90 }),
+      ...sides('lamp', 30, -28, 1, 0, { h: 22, c2: '#fffbe0' }), ...sides('box', 30, -28, 1, 0, { w: 3.5, h: 1.8, d: 0.8, y: 21, c: '#fffbe0' }), o('screen', 0, -38, { w: 14, h: 5, y: 13, txt: 'HOME 2 - 1 AWAY', c: '#0f2a5a', c2: '#ffffff' })] },
   { id: 'army', name: 'Army Base', re: /\b(army|military|parade|barracks|soldiers?|boot camp|war base|bootcamp|fort)\b/,
     ground: 'concrete', sky: 'day', weather: 'none', accent: '#6a7a3a', floorColor: '#7d7f6a',
     floor: [rect(10, 26, 80, 62, '#6e705c'), frame(10, 26, 80, 62, '#e8e2c0', 0.8), line(50, 26, 50, 88, '#e8e2c0', 0.5), oval(50, 57, 22, 40, { stroke: '#e8e2c0', lw: 0.7 }), noise(0.5)],
@@ -273,7 +289,7 @@ const PROP_OBJ = {
 const KEEP = ['landmark', 'building', 'wall', 'tower', 'stage', 'dome'];
 export function fitView(objs) {
   return objs.map((x) => {
-    if (KEEP.includes(x.t) && x.z <= -20 || x.z <= -26) return x;
+    if (x.t === 'cage' || KEEP.includes(x.t) && x.z <= -20 || x.z <= -26) return x;
     const hw = 0.58 * (11 - x.z) * 0.9, n = x.n || 1, dx = x.dx ?? 1, sg = x.x < 0 ? -1 : 1;
     let x0 = x.x, d = dx;
     if (Math.abs(x0) > hw) x0 = sg * hw * 0.85;
@@ -282,6 +298,34 @@ export function fitView(objs) {
     return { ...x, x: x0, dx: d };
   });
 }
+
+// ── what each well-known place has that people recognise it by (like the flag plaza: sandbags, whitewashed stones, a sign, white chairs, a caravan...).
+// Added on top of the place's own list, near the fight first, then the middle, then the far hills (those come from the scene itself).
+const ENRICH = {
+  ring: () => [o('stands', 0, -36, { w: 60, h: 9, d: 6, c: '#26262e', c2: '#ffd23f' }), o('screen', 0, -40, { w: 16, h: 6, y: 12, txt: 'FIGHT NIGHT', c: '#1f2f6a', c2: '#ffd23f' })],
+  concert: () => [o('screen', 0, -30, { w: 20, h: 8, y: 6, txt: 'LIVE TONIGHT', c: '#4a1a5a', c2: '#2fe0ff' })],
+  library: () => [...sides('table', 14, -9, 1, 0, { w: 3, d: 1.2, c: '#6b4a2e' }), ...sides('chair', 14, -10.4, 2, 1.4, { c: '#3a2a1a' }), ...sides('lamp', 12, -8, 2, 4, { h: 3, c2: '#ffd98a' })],
+  army: () => [...sides('sandbag', 13, -6, 1, 0, { c: '#a89a70' }), ...sides('rock', 9, -12, 5, 2.2, { r: 0.45, c: '#f2f0ea' }), o('sign', 0, -13, { w: 5, h: 1.4, txt: 'PARADE', c: '#2a3a22', c2: '#f2f0ea' }), ...sides('barrel', 17, -7, 2, 1.2, { c: '#4a5a3a', c2: '#222' }),
+    row('chair', -9, -10, 12, 1.6, { c: '#f4f4f4', c2: '#cfcfcf' }), o('box', -27, -22, { w: 7, h: 3, d: 3, c: '#e8e8e0' }), ...sides('tree', 24, -24, 3, 6, { h: 10, c: '#6a7a3a', dz: -3 })],
+  market: () => [...sides('barrel', 17, -7, 2, 1.1, { c: '#8a5a32', c2: '#3a3a3a' }), row('lantern', -10, -10, 4, 6.5, { h: 3.4, c2: '#ff7a3a' }), ...sides('haybale', 22, -11, 2, 2.4, { c: '#d9b84a' })],
+  japan: () => [row('lantern', -9, -9, 4, 6, { h: 3.4, c2: '#ff5a3a' }), ...sides('rock', 11, -8, 4, 2, { r: 0.5, c: '#bdb8ae' }), ...sides('cylinder', 21, -17, 5, 2.4, { r: 0.13, h: 9, c: '#6aa048' }), ...sides('bush', 14, -6, 2, 2.5, { r: 0.8, c: '#3f7a40' })],
+  medieval: () => [...sides('barrel', 14, -6, 2, 1.1, { c: '#8a5a32', c2: '#3a3a3a' }), ...sides('haybale', 21, -9, 2, 2.4, { c: '#d9b84a' }), ...sides('banner', 15, -13, 1, 0, { w: 2.4, h: 5, y: 1, c: '#a01820', c2: '#f4c542', txt: 'KING' }), ...sides('lamp', 12, -7, 2, 6, { h: 3.2, c2: '#ff8a3a' })],
+  city: () => [...sides('bench', 13, -6, 1, 0, { w: 2.4, c: '#6b4a2e', c2: '#333333' }), o('sign', -16, -9, { w: 4, h: 1.3, txt: 'CAFE', c: '#7a2a2a', c2: '#fff1c0' }), o('sign', 16, -10, { w: 4, h: 1.3, txt: 'TAXI', c: '#f4c542', c2: '#111111' }), ...sides('barrel', 19, -8, 1, 0, { c: '#3a4a5a', c2: '#222' })],
+  forest: () => [...sides('bush', 14, -6, 3, 3, { r: 0.9, c: '#2f6a2a', dz: -2 }), ...sides('rock', 17, -10, 2, 3, { r: 1, c: '#7d776f' })],
+  desert: () => [...sides('barrel', 15, -8, 1, 0, { c: '#8a5a32', c2: '#444444' }), o('sign', -16, -10, { w: 4.5, h: 1.4, txt: 'SALOON', c: '#6a3a1a', c2: '#f4d890' }), ...sides('haybale', 20, -12, 2, 2.4, { c: '#d9b84a' })],
+  windmill: () => [...sides('haybale', 14, -8, 3, 2.2, { c: '#d9b84a', dz: -2 }), ...sides('barrel', 19, -7, 1, 0, { c: '#8a5a32', c2: '#444444' }), ...sides('fence', 16, -14, 1, 0, { w: 10, c: '#a27a4a', c2: '#7a5a3a' })],
+  pirate: () => [...sides('barrel', 12, -6, 2, 1.1, { c: '#8a5a32', c2: '#2a2a2a' }), ...sides('crate', 17, -8, 2, 1.1, { c: '#6b4a2e' })],
+  skate: () => [...sides('barrel', 16, -7, 2, 1.1, { c: '#d8322a', c2: '#222222' })],
+  junkyard: () => [...sides('barrel', 12, -6, 3, 1.1, { c: '#6a5a4a', c2: '#2a2a2a', dz: -1.5 })],
+  'dark castle': () => [...sides('lantern', 12, -7, 2, 6, { h: 3.4, c2: '#b46aff' }), ...sides('barrel', 16, -8, 1, 0, { c: '#3a3036', c2: '#111111' })],
+  fairy: () => [...sides('lantern', 11, -7, 3, 5, { h: 3.6, c2: '#ffd1f0' }), ...sides('bush', 15, -9, 2, 3, { r: 1, c: '#c86aa8' })],
+};
+
+// the inside of a building: what the walls look like (see scene.js addRoom)
+const ROOM = {
+  courthouse: { k: 'wood', c: '#e8dcc0', c2: '#4a2e1a' }, fightarena: { k: 'dark', c: '#0a0a10', c2: '#d8322a' }, ring: { k: 'dark', c: '#0a0a10', c2: '#ffd23f' }, gym: { k: 'brick', c: '#b8704a', c2: '#8a4a2a' },
+  concert: { k: 'dark', c: '#0a0a10', c2: '#ff3cac' }, school: { k: 'plain', c: '#e8e2d0', c2: '#7a9ab8' }, library: { k: 'books', c: '#3a2616', c2: '#5a3a20' }, house: { k: 'plain', c: '#d8c49a', c2: '#8a6a42' },
+};
 
 // ── detail: every arena gets a textured floor and layers of scenery (near, middle, far) so none of them looks bare ──
 const rand = (seed) => { let s = 2166136261; for (const ch of String(seed)) s = Math.imul(s ^ ch.charCodeAt(0), 16777619) >>> 0; return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296); };
@@ -369,6 +413,7 @@ function dress(a) {
     default: s = [...far('box', -5.5, 6.5, { w: 3, h: 0.9, d: 0.8, c: '#d8a02a' }), ...far('lamp', -9, 6, { h: 5, c2: '#fff1c0' }, 3), ...far('cylinder', -7.5, 4, { r: 0.2, h: 0.9, c: '#d8322a' }, 1),
       ...(count('building') >= 2 ? [] : [...far('building', -34, 11, { w: 9, h: 20, d: 8, c: dark ? '#1a1c26' : '#8c95a0', c2: dark ? '#ffd98a' : '#cfe3f2' }), ...far('building', -48, 11, { w: 10, h: 34, d: 9, c: dark ? '#14161e' : '#78818c', windows: false }, 5)])];
   }
+  s.push(...(ENRICH[a.id]?.() || []));
   const floorOps = Math.max(0, 58 - a.floor.length);
   return { floor: [...floorDetail(G, a.floorColor, R).slice(0, floorOps), ...a.floor], objects: [...objs, ...s] };
 }
@@ -396,7 +441,7 @@ function fresh(text, nameHint) {
         const l = h.objects.find((x) => x.t === 'landmark'), centre = i === 0 && !isLm(p);
         return centre ? l : { ...l, x: i === 0 ? -26 : 26, s: (l.s || 1) * 0.8 };
       });
-      base = { indoor: p.indoor, dressAs: p.dressAs, name: lms.length ? `${p.name} + ${lms[0].name}` : p.name, ground: p.ground, sky: p.sky, weather: p.weather, accent: p.accent, floorColor: p.floorColor, floor: [...p.floor], objects: [...p.objects, ...lmObjs] };
+      base = { id: p.id, room: ROOM[p.id], indoor: p.indoor, dressAs: p.dressAs, name: lms.length ? `${p.name} + ${lms[0].name}` : p.name, ground: p.ground, sky: p.sky, weather: p.weather, accent: p.accent, floorColor: p.floorColor, floor: [...p.floor], objects: [...p.objects, ...lmObjs] };
       matched.push(p.name.toLowerCase(), ...lms.map((h) => h.name.toLowerCase()));
       // things asked for by name that the place does not have yet (trees, rocks, lamps, mountains...)
       const d = describeArena(t), TYPE = { trees: 'tree', pines: 'pine', palms: 'palm', rocks: 'rock', mountains: 'cone', buildings: 'building', lamps: 'lamp', lanterns: 'lamp', crates: 'crate', pillars: 'cylinder', crystals: 'cone' };
@@ -424,7 +469,7 @@ function fresh(text, nameHint) {
   out.name = String(out.name).slice(0, 24);
   if (!flagKey) { const d = dress(out); out.floor = d.floor; out.objects = d.objects; }
   out.props = [];
-  out.scene = { floorColor: out.floorColor, floor: out.floor, objects: fitView(out.objects) };
+  out.scene = { floorColor: out.floorColor, floor: out.floor, objects: fitView(out.objects), room: out.room || null, hills: !out.indoor && !['space', 'sea', 'cave'].includes(out.dressAs || base.id) && out.sky !== 'space' };
   return { name: out.name, ground: out.ground, sky: out.sky, weather: out.weather, accent: out.accent, props: [], scene: out.scene, matched, left, guess: !!out.guess };
 }
 // which kinds of things the keyword builder found in the words (none = it only has its defaults)
@@ -517,7 +562,7 @@ export const ARENA_LIST = [
     ['Army base', 'parade, barracks, fort', 'an army base'], ['Classroom', 'school, university', 'a classroom'], ['Library', 'bookshop, archive', 'an old library'], ['Living room', 'house, kitchen, garage, office', 'a living room'],
   ]),
   g('Sport and shows', '', [
-    ['Boxing ring', 'wrestling, mma, octagon', 'a boxing ring'], ['Stadium', 'football, soccer, basketball, tennis', 'a football stadium'], ['Concert stage', 'festival, theatre', 'a concert stage'], ['Circus', 'carnival, funfair, theme park', 'a circus'], ['Pirate ship', 'galleon, ship deck', 'a pirate ship at sunset'], ['Space station', 'moon, mars, planet', 'a space station'], ['Graveyard', 'haunted, halloween, spooky', 'a haunted graveyard at night'],
+    ['Boxing ring', 'wrestling', 'a boxing ring'], ['Fighting arena', 'mma, octagon, cage fight, ufc', 'a fighting arena with a cage'], ['Courthouse', 'courtroom, judge, trial', 'a courthouse'], ['Gym', 'basketball, sports hall', 'a basketball gym'], ['Stadium', 'football, soccer, tennis', 'a football stadium'], ['Concert stage', 'festival, theatre', 'a concert stage'], ['Circus', 'carnival, funfair, theme park', 'a circus'], ['Pirate ship', 'galleon, ship deck', 'a pirate ship at sunset'], ['Space station', 'moon, mars, planet', 'a space station'], ['Graveyard', 'haunted, halloween, spooky', 'a haunted graveyard at night'],
   ]),
   g('Country flags', 'The flag is painted on the floor and flies on poles. Say "the ___ flag".', [
     ['USA', 'american', 'the american flag'], ['Britain', 'uk, england', 'the british flag'], ['France', 'french', 'the french flag'], ['Germany', 'german', 'the german flag'], ['Italy', 'italian', 'the italian flag'], ['Spain', 'spanish', 'the spanish flag'], ['Israel', 'israeli', 'the israeli flag'],

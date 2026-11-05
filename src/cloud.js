@@ -56,15 +56,23 @@ async function sha(buf) {
   try { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((b) => b.toString(16).padStart(2, '0')).join(''); } catch { return `len${buf.byteLength}`; }
 }
 const mb = (n) => (n / 1048576).toFixed(1);
-async function putFile(pathname, buf, label) {
+async function putFile(pathname, buf, label, contentType = 'application/octet-stream') {
   const { upload } = await import('./vendor/blob-client.js'); // (@vercel/blob's browser client, bundled; only loaded when something is uploaded)
-  const blob = new Blob([buf], { type: 'application/octet-stream' });
+  const blob = new Blob([buf], { type: contentType });
   const r = await upload(pathname, blob, {
-    access: 'public', handleUploadUrl: '/api/upload', contentType: 'application/octet-stream',
+    access: 'public', handleUploadUrl: '/api/upload', contentType,
     clientPayload: JSON.stringify({ token: sessionToken() }),
     onUploadProgress: (p) => say(`Uploading ${label} (${mb(buf.byteLength)} MB)… ${Math.floor(p.percentage)}%`),
   });
   return r.url;
+}
+// an arena's own file (the player's picture or 3D arena) goes up at once, so the arena can point at it: returns its address,
+// or null when the account can't keep files (not logged in online, or no file store)
+export async function uploadArenaFile(arenaId, kind, buf, ext, label) {
+  if (!(await cloudReady())) return null;
+  if (!state.dir) state.dir = (await call('list')).dir;
+  const type = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', glb: 'model/gltf-binary' }[ext];
+  return putFile(`${state.dir}/${arenaId}-${kind}.${ext}`, buf, label, type);
 }
 async function getFile(url) {
   const r = await fetch(url, { cache: 'force-cache' });

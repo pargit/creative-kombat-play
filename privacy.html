@@ -21,7 +21,7 @@
 <body>
 <main>
   <h1>Creative Kombat · Privacy Policy</h1>
-  <p class="date">Last updated: 31 October 2026</p>
+  <p class="date">Last updated: 1 November 2026</p>
 
   <p>Creative Kombat is a fighting game in which players make their own fighters and arenas. This page explains what the game stores about you, why, and who else handles it. The short version: the game keeps what it needs to run your account and your creations, shows no ads, sells no data, and tracks nobody across other sites or apps.</p>
 
@@ -44,8 +44,10 @@
   <h2>Online play</h2>
   <p>Online fights connect your device directly to your opponent's device (WebRTC). To set that up, introduction servers see your network address, as with any voice or video call. When a direct connection is impossible, the fight is relayed through a server that forwards the data without storing it. Your name and tag are shown to the players you fight, invite or befriend.</p>
 
+  <h2>The helper</h2>
+  <p>The help bubble (the ? button) sends the question you type, and your last few messages with it, to Google's Gemini API to write the answer. It does not send your name, your fighters or anything else. Questions are limited per day.</p>
   <h2>The AI designer</h2>
-  <p>When you press AI DESIGN, the description you typed is sent to Anthropic's API to turn it into a special move or an arena. Only that text is sent, not your name or account. Please don't put personal details in those descriptions. Anthropic's handling of API data is described in their own privacy policy.</p>
+  <p>When you build a special or an arena with the AI (the build buttons in the creator and the AI DESIGN buttons), the description you typed, and for a change also the design being changed, is sent to an AI service to turn it into a special move or an arena: Google's Gemini API, or Anthropic's API on some servers. The realistic arena sends the description to Google's Gemini image model to paint two pictures. Only that text is sent, not your name or account. Please don't put personal details in those descriptions. Google's and Anthropic's handling of API data is described in their own privacy policies; on Google's free tier, Google may use submitted text to improve its products.</p>
 
   <h2>Purchases</h2>
   <p>Payments are handled entirely by the payment provider: Google Play in the Play Store app, Lemon Squeezy on the website (cards, PayPal, Apple Pay, Google Pay), or Steam in the Steam version. The game never sees your card or payment details; it receives only a confirmation that an order was paid and which pack it was.</p>
@@ -55,7 +57,7 @@
     <li>The game's server and account database run on Vercel and Upstash (Redis).</li>
     <li>Uploaded 3D model files are stored in Vercel Blob.</li>
     <li>Sign-in is checked with Google (Google Identity Services) or Steam (Steam OpenID); each only tells the game which account signed in.</li>
-    <li>AI designs are generated through Anthropic's API.</li>
+    <li>AI designs are generated through Google's Gemini API (or Anthropic's API).</li>
     <li>Payments: Google Play, Lemon Squeezy, or Steam, as above.</li>
   </ul>
   <p>The game uses no advertising, no analytics trackers and no third-party cookies. The game's own browser storage is used only to keep you logged in and to keep your settings and creations on your device.</p>

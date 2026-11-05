@@ -3,6 +3,7 @@ import { ROSTER, DUMMY, LOCKED_SLOTS, GAME_TITLE, GAME_SUBTITLE, CONFETTI_COLORS
 import { Arena } from './arena.js';
 import { CustomArena, DEFAULT_ARENA } from './arenas.js';
 import './custom.js'; // (the player-made specials: registers their effect)
+import { initHelper } from './helper.js';
 import { initCreator, openCreate, loadCustomFighters, allArenas, openTutorials } from './creator.js';
 import { makeEnvironment, ContactShadows, GoldLight, bakeStatic } from './look.js';
 import { quality } from './quality.js';
@@ -200,6 +201,7 @@ function show(id) {
   for (const s of $$('.screen')) s.hidden = s.id !== id;
   app.screen = id.replace('screen-', '');
   document.body.classList.toggle('fighting', id === 'screen-fight');
+  window.__helperScreen?.();
   if (typeof renderBadge === 'function') renderBadge();
   document.body.classList.toggle('hudon', ['screen-fight', 'screen-pause', 'screen-result'].includes(id) || (['screen-controls', 'screen-graphics', 'screen-audio'].includes(id) && settingsReturn === 'pause'));
   refreshChrome();
@@ -685,7 +687,7 @@ const SPECIAL_INFO = {
   teleport: { dmg: (d) => d, effect: 'Teleports behind them and strikes' },
 };
 function customSpecialText(sp) {
-  const how = { projectile: 'a shot', shot: 'a shot', beam: 'a beam', dash: 'dashes through', teleport: 'teleports behind', sky: 'from the sky', blast: 'a blast', summon: 'summons a beast', stomp: 'a giant stomp', cage: 'a cage', clones: 'shadow clones', quake: 'an earthquake' };
+  const how = { projectile: 'a shot', shot: 'a shot', beam: 'a beam', dash: 'dashes through', teleport: 'teleports behind', sky: 'from the sky', blast: 'a blast', summon: 'summons a beast', double: 'summons their own fighter', stomp: 'a giant stomp', cage: 'a cage', clones: 'shadow clones', quake: 'an earthquake' };
   const steps = sp.steps || [{ kind: sp.delivery, hits: sp.hits || 1 }];
   const fx = (sp.onHit || []).map((k) => ({ knockdown: 'knocks down', launch: 'launches', push: 'pushes away', pull: 'pulls in', daze: 'dazes', freeze: 'freezes', slow: 'slows', poison: 'poisons', blind: 'blinds' }[k])).filter(Boolean);
   const said = steps.map((st) => `${how[st.kind] || ''}${st.hits > 1 ? ` (${st.hits} hits)` : ''}`).join(', then ');
@@ -3601,6 +3603,7 @@ async function boot() {
   rings = new Rings(scene);
   confetti = new Confetti(scene, CONFETTI_COLORS);
   buildGrid();
+  initHelper({ screen: () => app.screen });
   initCreator({
     show, backToTitle: () => { setArena(app.arenaCfg); enterTitle(); },
     // (back: from the special editor's TRY IT NOW, where QUIT goes back to the editor)
