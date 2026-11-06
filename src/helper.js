@@ -11,7 +11,7 @@ export function initHelper({ screen }) {
   const head = $el('div', {}, 'display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #ffb34755');
   head.append($el('b', { textContent: 'ASK THE HELPER' }, 'flex:1;letter-spacing:.06em;color:#ffd27a'), $el('button', { type: 'button', textContent: '✕', ariaLabel: 'Close' }, 'background:none;border:0;color:#f3e9dc;font-size:16px;cursor:pointer'));
   const log = $el('div', {}, 'flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;min-height:120px');
-  const note = $el('div', { textContent: 'Free. Ask how anything in the game works. Questions are answered by Google Gemini, so they are sent to Google.' }, 'padding:0 10px 6px;font-size:11px;opacity:.7');
+  const note = $el('div', { textContent: 'Free. Ask how anything in the game works.' }, 'padding:0 10px 6px;font-size:11px;opacity:.7');
   const row = $el('form', {}, 'display:flex;gap:6px;padding:8px 10px;border-top:1px solid #ffb34755');
   const input = $el('input', { type: 'text', maxLength: 500, placeholder: 'e.g. how do I turn my model?' }, 'flex:1;min-width:0;padding:8px;border-radius:8px;border:1px solid #ffb34788;background:#0e0806;color:#f3e9dc;font-family:inherit;font-size:14px');
   const send = $el('button', { type: 'submit', textContent: 'SEND' }, 'padding:8px 12px;border-radius:8px;border:0;background:#ffb347;color:#2a1c14;font-weight:800;font-size:13px;font-family:inherit;cursor:pointer');
@@ -42,7 +42,7 @@ export function initHelper({ screen }) {
       const j = await r.json();
       if (j.ok) {
         wait.textContent = j.answer; history.push({ role: 'user', text }, { role: 'model', text: j.answer });
-        if (typeof j.left === 'number' && j.left < 999) note.textContent = `Free. ${j.left} question${j.left === 1 ? '' : 's'} left today. Answered by Google Gemini, so questions are sent to Google.`;
+        if (typeof j.left === 'number' && j.left < 999) note.textContent = `Free. ${j.left} question${j.left === 1 ? '' : 's'} left today.`;
       } else { wait.textContent = j.error || 'The helper could not answer.'; wait.style.color = '#ff9a8a'; }
     } catch { wait.textContent = 'Could not reach the helper. Check your connection and try again.'; wait.style.color = '#ff9a8a'; }
     send.disabled = false; log.scrollTop = log.scrollHeight;
